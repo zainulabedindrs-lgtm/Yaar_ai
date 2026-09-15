@@ -212,9 +212,9 @@ cd Yaar_ai
 # 2. install dependencies (client, server and test tooling)
 npm install
 
-# 3. create your environment file
+# 3. create your environment file (git-ignored — see §8 for the full walkthrough)
 cp .env.example .env
-#    → then edit .env and set HF_API_KEY (see §9)
+#    → open .env and paste your Hugging Face token into HUGGINGFACE_API_KEY
 
 # 4. run the app (API + Vite dev server, both watching)
 npm run dev
@@ -232,7 +232,8 @@ npm run dev:api        # only the API server
 npm run check:ai       # send one real prompt to the configured provider and print the reply
 npm run test           # 138 automated tests (server + client)
 npm run smoke          # 41-check end-to-end run against a temporary database
-npm run verify         # tests + production build + smoke test (use before releasing)
+npm run check:secrets  # scan tracked files + the built bundle for leaked credentials
+npm run verify         # secrets scan + tests + production build + smoke test
 npm run build          # production client build → ./dist
 npm start              # production server: serves ./dist + the API on :8787
 npm run db:reset       # delete the local SQLite database
@@ -269,7 +270,7 @@ Everything lives in `.env` (git-ignored). `.env.example` documents every key; th
 | `HOST` | `0.0.0.0` | Bind address (keep `0.0.0.0` in containers) |
 | `NODE_ENV` | `development` | `production` enables strict secrets + secure cookies |
 | `AI_PROVIDER` | `huggingface` | `huggingface` or `openai-compatible` |
-| `HF_API_KEY` | — | **Secret.** Hugging Face token with Inference Providers access |
+| `HF_API_KEY` | — | Legacy alias for `HUGGINGFACE_API_KEY`; still read if the new name is unset |
 | `HF_BASE_URL` | `https://router.huggingface.co/v1` | Inference Providers router |
 | `HF_MODEL` | `Qwen/Qwen3-8B` | Primary model |
 | `HF_MODEL_FALLBACKS` | `meta-llama/Llama-3.1-8B-Instruct,openai/gpt-oss-20b` | Tried in order if the primary fails |
@@ -294,6 +295,64 @@ Generate a production secret with:
 node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
 ```
 
+### 8.1 Creating your local `.env` and adding the Hugging Face key
+
+`.env` is **git-ignored** and is the only place the key should ever live. Nothing is read from it
+by the browser — `client/` never sees it, and the built bundle is scanned for tokens by
+`npm run check:secrets`.
+
+```bash
+# 1. from the repository root, copy the template
+cp .env.example .env
+
+# 2. open .env in your editor and find the Hugging Face block
+#       HUGGINGFACE_API_KEY=
+#    paste your token immediately after the "=" with no quotes and no spaces:
+#       HUGGINGFACE_API_KEY=<your token, starts with hf_>
+
+# 3. make sure the app is using the real provider (not the offline mock)
+#       AI_PROVIDER=huggingface
+
+# 4. confirm nothing sensitive is staged for commit, then verify the key works
+npm run check:secrets
+npm run check:ai -- "kya kar rahe ho?"
+```
+
+The last command prints the provider, the model, the latency and a real reply. If it reports
+“AI provider is NOT configured”, the key is missing, misspelled or empty in `.env`.
+
+**Where the key must never appear**
+
+| Don't put the key in | Why |
+| --- | --- |
+| `.env.example` | It is committed to GitHub and read by everyone |
+| Anywhere in `client/` (components, hooks, config) | It would be bundled into browser JavaScript — `VITE_*` variables are public |
+| Committed source files, tests, fixtures, screenshots, commit messages | Git history is forever, even after a delete |
+| `localStorage`, `sessionStorage`, cookies or a URL query string | Visible in the browser and in logs |
+| Chat transcripts, tickets or screenshots | Treat any pasted key as compromised |
+
+**How the key is used, and how it stays server-side**
+
+```
+.env (git-ignored)  →  server/config.js  →  server/services/ai/providers.js
+                                           →  Authorization: Bearer <key>
+                                              (outgoing HTTPS request to Hugging Face)
+browser  →  /api/chat/... (your own server)  →  no key, ever
+```
+
+* `server/config.js` reads `process.env.HUGGINGFACE_API_KEY` **once, at import time**, on the server only.
+* The token is attached to the outgoing provider request as a bearer header; it is never included in
+  an API response, a log line or an error message (the logger redacts both secret-named fields and
+  anything that looks like an `hf_…` / `sk-…` / `Bearer …` value).
+* The browser only ever talks to your own origin: the client-side CSP is `connect-src 'self'`.
+* `npm run check:secrets` (part of `npm run verify`) fails the build if a token-shaped value appears
+  in a tracked file or in `dist/`, if `.env.example` holds a real value, if `.env` is not ignored, or
+  if client code references a server-only variable.
+
+**If a key ever leaks** (pasted into a chat, committed, shared in a screenshot): revoke it at
+<https://huggingface.co/settings/tokens>, create a new one, update `.env`, restart the server, and
+run `npm run check:secrets` again. Rotating takes a minute; leaving a live key exposed does not.
+
 ## 9. Hugging Face setup
 
 1. Create a free account at <https://huggingface.co/join>.
@@ -302,10 +361,14 @@ node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
 3. Copy the token (`hf_…`) into `.env`:
 
    ```ini
+   # .env  (git-ignored)
    AI_PROVIDER=huggingface
-   HF_API_KEY=hf_your_token_here
+   HUGGINGFACE_API_KEY=hf_your_token_here
    HF_MODEL=Qwen/Qwen3-8B
    ```
+
+   Pasting the token on the same line as `HUGGINGFACE_API_KEY=`, with no quotes and no spaces, is
+   all that is required — see §8.1 for the full walkthrough.
 
 4. Verify:
 
@@ -342,7 +405,7 @@ browser ──POST /api/chat/:companion/messages──▶ Express
                                                  ▼
                                        openaiCompatibleClient.chat({ stream: true })
                                                  │  POST https://router.huggingface.co/v1/chat/completions
-                                                 │  Authorization: Bearer $HF_API_KEY   (server only)
+                                                 │  Authorization: Bearer $HUGGINGFACE_API_KEY   (server only)
                                                  ▼
                                        SSE deltas ─▶ ReasoningFilter ─▶ SSE deltas ─▶ browser bubbles
                                                  │
@@ -553,6 +616,8 @@ npm run verify        # test + build + smoke — the pre-release gate
 | Chat flow (HTTP) | `tests/server/chatFlow.test.js` | Boot payload, greeting seeding, SSE meta/delta/done, JSON mode, one-credit-per-message regression, Urdu/Hindi/Roman/mixed replies, empty messages, unknown companion, regenerate, provider outage/rate-limit/auth failures, history pagination, cross-user privacy, clear/delete |
 | AI provider | `tests/server/aiProvider.test.js` | Reasoning filter (single chunk, split chunks, partial tags), SSE parsing, language mirroring, fallbacks (model + non-streaming), timeout, offline, empty reply, error mapping |
 | Prompt builder | `tests/server/promptBuilder.test.js` | Script detection, language instructions, history budgeting, same-role merging, persona integrity |
+| Secret handling (server) | `tests/server/envSecret.test.js` | The key is read from `HUGGINGFACE_API_KEY` (alias `HF_API_KEY`), never appears in an API response, is redacted in logs and errors, and warns by name when missing |
+| Secret handling (client) | `tests/client/secretHandling.test.jsx` | Client config exposes no secrets, no client file reads a server-only variable, no credential-shaped strings, the bundle points at our API only |
 | Composer | `tests/client/ChatComposer.test.jsx` | Typing integrity for all scripts, Enter/Shift+Enter, IME, send button, limit state, CSS contract |
 | API client | `tests/client/apiClient.test.js` | Device header, error mapping, offline, timeout, cancellation, usage details |
 | SSE transport | `tests/client/chatStream.test.js` | Frame ordering, split frames, heartbeats, error frames, aborted streams |
@@ -577,7 +642,7 @@ npm start          # serves ./dist + the API on PORT, NODE_ENV=production
 
 Production checklist:
 
-1. `.env`: `NODE_ENV=production`, a strong `SESSION_SECRET`, real `HF_API_KEY`, `TRUST_PROXY=1`
+1. `.env`: `NODE_ENV=production`, a strong `SESSION_SECRET`, real `HUGGINGFACE_API_KEY`, `TRUST_PROXY=1`
    behind a proxy, `FRAME_ANCESTORS='self'`.
 2. Put the app behind HTTPS (required for `secure` cookies and for the Play Store build).
 3. Persist `DATABASE_PATH` on a volume (`./data` by default) and back it up — it holds the users,
@@ -634,13 +699,19 @@ npx cap open android
 
 ## 20. Security notes
 
-* **The Hugging Face key never leaves the server.** It is read from `HF_API_KEY` in
-  `server/config.js` and used only by the server-side AI client. No `VITE_*` variable ever holds a
-  secret, and the CSP restricts `connect-src` to the app's own origin.
+* **The Hugging Face key never leaves the server.** It is read from `HUGGINGFACE_API_KEY` in
+  `server/config.js` (server-side only) and used by the AI client as a bearer header on the outgoing
+  provider request. No `VITE_*` variable ever holds a secret, the CSP restricts `connect-src` to the
+  app's own origin, and `tests/client/secretHandling.test.jsx` fails the build if a client file ever
+  touches a server-only variable or contains a credential-shaped string.
 * **`.env` is git-ignored** (`.env`, `.env.*`, `!.env.example`); `.env.example` contains
   placeholders only. Never commit real keys — if one leaks, rotate it in the HF dashboard.
-* **Secrets the server needs:** `HF_API_KEY`, `SESSION_SECRET` (and `OPENAI_COMPATIBLE_API_KEY`
-  when that provider is used). Everything else is configuration.
+* **Secrets the server needs:** `HUGGINGFACE_API_KEY` (alias: `HF_API_KEY`), `SESSION_SECRET`
+  (and `OPENAI_COMPATIBLE_API_KEY` when that provider is used). Everything else is configuration.
+* **Automated leak detection:** `npm run check:secrets` scans every tracked file and the built
+  bundle for `hf_…`/`sk-…`/`AWS`/`Google` credential patterns, asserts `.env.example` holds only
+  empty placeholders, proves `.env` is ignored, and verifies the client never reads a server-only
+  variable. It runs first and last in `npm run verify`, so a leak fails CI before it ships.
 * **Input handling:** messages are Unicode-NFC-normalised, control characters stripped, length
   capped (2000 chars), and rendered as React text nodes (no `dangerouslySetInnerHTML` anywhere),
   so injected markup is displayed literally instead of executed.
@@ -660,7 +731,7 @@ npx cap open android
 
 | Symptom | Cause / fix |
 | --- | --- |
-| “Yaar is not connected to an AI yet” | `HF_API_KEY` is missing/empty in `.env`. Set it and restart. |
+| “Yaar is not connected to an AI yet” | `HUGGINGFACE_API_KEY` is missing/empty in `.env`. Set it and restart. |
 | Every send shows “I couldn't reply just now…” | Provider outage, wrong model, or a token without *Inference Providers* permission. Run `npm run check:ai` and read the server log line `ai http error` (status + body snippet). |
 | 401/403 from the provider | Token revoked or missing the Inference Providers permission — create a new one. |
 | 404/400/503 from the provider | Model unavailable for your account/provider routing. Try another `HF_MODEL`, or pin a provider (`HF_INFERENCE_PROVIDER=together`). |

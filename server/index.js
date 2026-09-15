@@ -37,7 +37,7 @@ server.listen(config.server.port, config.server.host, () => {
   });
   if (!isAiConfigured()) {
     logger.warn('ai provider not configured', {
-      hint: 'Set HF_API_KEY in .env (see .env.example) and restart.',
+      hint: 'Set HUGGINGFACE_API_KEY in .env (see .env.example) and restart.',
     });
   } else {
     try {

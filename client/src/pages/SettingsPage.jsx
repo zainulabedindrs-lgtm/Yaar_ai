@@ -289,7 +289,7 @@ export function SettingsPage() {
                 <div className="setting-row__label">AI model</div>
                 <div className="setting-row__value">
                   {ai?.model ?? 'not configured'}
-                  {ai?.configured === false ? ' — add HF_API_KEY on the server' : ''}
+                  {ai?.configured === false ? ' — the server has no API key configured' : ''}
                 </div>
               </div>
             </div>

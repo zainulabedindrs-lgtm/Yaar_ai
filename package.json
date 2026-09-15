@@ -23,7 +23,8 @@
     "dev:api": "node server/index.js",
     "icons": "node scripts/generate-icons.mjs",
     "smoke": "node scripts/smoke-test.mjs",
-    "verify": "npm run test && npm run build && npm run smoke"
+    "verify": "npm run check:secrets && npm run test && npm run build && npm run check:secrets && npm run smoke",
+    "check:secrets": "node scripts/check-secrets.mjs"
   },
   "dependencies": {
     "better-sqlite3": "^13.0.3",

@@ -404,7 +404,7 @@ export class OpenAiCompatibleChatClient {
     if (status === 401 || status === 403) {
       return ApiError.upstream(
         ERROR_CODES.AI_NOT_CONFIGURED,
-        'The AI provider rejected our credentials. Check HF_API_KEY on the server.',
+        'The AI provider rejected our credentials. Check HUGGINGFACE_API_KEY on the server.',
       );
     }
     if (status === 429) {

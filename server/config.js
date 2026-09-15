@@ -90,7 +90,12 @@ export const config = {
     timeoutMs: num('HF_TIMEOUT_MS', 45_000),
     idleTimeoutMs: num('HF_IDLE_TIMEOUT_MS', 20_000),
     huggingface: {
-      apiKey: str('HF_API_KEY'),
+      /**
+       * Server-only credential. `HUGGINGFACE_API_KEY` is the documented name;
+       * `HF_API_KEY` is accepted as an alias so existing deployment configs
+       * keep working. It is never read from, or sent to, the client.
+       */
+      apiKey: str('HUGGINGFACE_API_KEY') || str('HF_API_KEY'),
       baseUrl: str('HF_BASE_URL', 'https://router.huggingface.co/v1').replace(/\/+$/, ''),
       models: parseModelList(),
       providerPin: str('HF_INFERENCE_PROVIDER'),
@@ -149,7 +154,7 @@ export function configWarnings() {
   if (!isAiConfigured()) {
     warnings.push(
       config.ai.provider === 'huggingface'
-        ? 'HF_API_KEY is not set — chat replies will fail with a friendly "AI not connected" message. Add it to .env.'
+        ? 'HUGGINGFACE_API_KEY is not set — chat replies will fail with a friendly "AI not connected" message. Add it to .env.'
         : 'OPENAI_COMPATIBLE_BASE_URL is not set — chat replies will fail.',
     );
   }

@@ -7,7 +7,7 @@
  *   npm run check:ai -- "Namaste, kaise ho?" --companion boyfriend
  *
  * It prints the provider, model, latency, and the reply — the fastest way to
- * confirm that `HF_API_KEY` and `HF_MODEL` are right before shipping.
+ * confirm that `HUGGINGFACE_API_KEY` and `HF_MODEL` are right before shipping.
  */
 
 import process from 'node:process';
@@ -42,7 +42,7 @@ console.log('');
 
 if (!isAiConfigured()) {
   console.error(
-    'AI provider is NOT configured. Add HF_API_KEY to your .env (see .env.example) and retry.',
+    'AI provider is NOT configured. Add HUGGINGFACE_API_KEY to your .env (see .env.example) and retry.',
   );
   process.exit(1);
 }
@@ -72,6 +72,6 @@ try {
   console.log('\n✅ AI provider is working.');
 } catch (error) {
   console.error(`\n❌ AI request failed: ${error?.code || error?.name} — ${error?.message}`);
-  console.error('   Check HF_API_KEY, HF_MODEL and your network connection.');
+  console.error('   Check HUGGINGFACE_API_KEY, HF_MODEL and your network connection.');
   process.exit(1);
 }
