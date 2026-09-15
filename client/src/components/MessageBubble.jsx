@@ -24,16 +24,19 @@ export const MessageBubble = memo(function MessageBubble({ message, companion, o
     .filter(Boolean)
     .join(' ');
 
-  const showRetry =
-    isFailed &&
-    onRetry &&
-    // A message that never reached the server can simply be resent; a message
-    // that was accepted but got no reply is regenerated without using a credit.
-    (message.errorCode === ERROR_CODES.NETWORK ||
-      message.errorCode === ERROR_CODES.AI_UNAVAILABLE ||
-      message.errorCode === ERROR_CODES.AI_TIMEOUT ||
-      message.errorCode === ERROR_CODES.AI_EMPTY ||
-      !message.errorCode);
+  // A retry always re-sends with the same clientMessageId, so the server can
+  // tell whether it is a brand new message or a duplicate of one it already
+  // stored — a retry can never consume a second credit.
+  const RETRYABLE = new Set([
+    ERROR_CODES.NETWORK,
+    ERROR_CODES.SERVER,
+    ERROR_CODES.RATE_LIMITED,
+    ERROR_CODES.AI_UNAVAILABLE,
+    ERROR_CODES.AI_TIMEOUT,
+    ERROR_CODES.AI_EMPTY,
+    ERROR_CODES.CANCELLED,
+  ]);
+  const showRetry = isFailed && onRetry && (!message.errorCode || RETRYABLE.has(message.errorCode));
 
   return (
     <div className={`message-row ${isUser ? 'message-row--user' : ''}`.trim()}>

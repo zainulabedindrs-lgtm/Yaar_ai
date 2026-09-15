@@ -19,6 +19,31 @@ import { useSession } from './useSession.jsx';
  * when no reply was produced.
  */
 
+/**
+ * Merges a fresh history snapshot with messages the client already knows about.
+ *
+ * Server rows win for anything they know about (the same id), and anything the
+ * snapshot does not mention is kept rather than dropped: a message the user can
+ * see must never vanish because a slower request returned an older snapshot.
+ * The window in which that can happen is tiny (the history request is made
+ * before the user can type), but the consequence — losing the user's words —
+ * is worse than showing a duplicate, which cannot happen anyway because ids are
+ * unique.
+ *
+ * @param {Array<any>} current local messages
+ * @param {Array<any>} serverRows rows from the API
+ */
+function mergeHistory(current, serverRows) {
+  const fromDb = serverRows.map(fromServer);
+  if (current.length === 0) return fromDb;
+
+  const knownIds = new Set(fromDb.map((message) => message.id));
+  const localOnly = current.filter((message) => !knownIds.has(message.id));
+
+  if (localOnly.length === 0) return fromDb;
+  return [...fromDb, ...localOnly];
+}
+
 /** Maps an API message row to the UI shape. */
 function fromServer(row) {
   return {
@@ -56,6 +81,10 @@ export function useChat(companionId) {
   const [loadError, setLoadError] = useState(/** @type {ApiClientError|null} */ (null));
 
   const abortRef = useRef(/** @type {AbortController|null} */ (null));
+  /** Incremented for every history load so a stale response cannot overwrite
+   * a newer state (for example: the user cleared the chat while a reload was
+   * still in flight). */
+  const historyTokenRef = useRef(0);
   const sendingRef = useRef(false);
   const mounted = useRef(true);
   const messagesRef = useRef(messages);
@@ -80,12 +109,18 @@ export function useChat(companionId) {
 
   // --- history -------------------------------------------------------------
   const loadHistory = useCallback(async () => {
+    const token = historyTokenRef.current + 1;
+    historyTokenRef.current = token;
     setLoading(true);
     setLoadError(null);
     try {
       const payload = await yaarApi.getMessages(companionId);
-      if (!mounted.current) return;
-      setMessages(payload.messages.map(fromServer));
+      if (!mounted.current || token !== historyTokenRef.current) return;
+
+      // Merge instead of replace: if the user managed to send something while
+      // the history was still loading, their bubble (and any streaming reply)
+      // must survive the arrival of the server snapshot.
+      setMessages((current) => mergeHistory(current, payload.messages));
       applyUsage(payload.usage);
     } catch (caught) {
       if (!mounted.current) return;
@@ -93,7 +128,7 @@ export function useChat(companionId) {
         caught instanceof ApiClientError ? caught : new ApiClientError(ERROR_CODES.SERVER),
       );
     } finally {
-      if (mounted.current) setLoading(false);
+      if (mounted.current && token === historyTokenRef.current) setLoading(false);
     }
   }, [companionId, applyUsage]);
 
@@ -166,7 +201,20 @@ export function useChat(companionId) {
             if (payload?.userMessage) {
               const serverMessage = fromServer(payload.userMessage);
               setMessages((current) => {
-                const index = current.findIndex((message) => message.id === serverMessage.id);
+                // Normally the server echoes the client-generated id, so this
+                // is a straight swap of the optimistic bubble for the stored
+                // one. If a different id ever comes back, fall back to the
+                // pending bubble with the same text so the user never sees
+                // their message twice.
+                let index = current.findIndex((message) => message.id === serverMessage.id);
+                if (index === -1 && clientMessageId) {
+                  index = current.findIndex(
+                    (message) =>
+                      message.status === 'sending' &&
+                      message.sender === 'user' &&
+                      message.content === serverMessage.content,
+                  );
+                }
                 if (index === -1) return [...current, serverMessage];
                 const copy = [...current];
                 copy[index] = serverMessage;
@@ -211,8 +259,20 @@ export function useChat(companionId) {
           onError: (apiError) => {
             if (!mounted.current) return;
             if (apiError.code === ERROR_CODES.CANCELLED) {
-              // The user stopped the reply, or navigated away.
+              // The user stopped the turn, or navigated away. Drop the empty
+              // reply placeholder, and if the user message had not been
+              // confirmed yet, mark it so it can be re-sent (the server
+              // de-duplicates by clientMessageId, so a retry is always safe).
               dropEmptyAssistant();
+              if (clientMessageId) {
+                setMessages((current) =>
+                  current.map((message) =>
+                    message.id === clientMessageId && message.status === 'sending'
+                      ? { ...message, status: 'failed', errorCode: ERROR_CODES.CANCELLED }
+                      : message,
+                  ),
+                );
+              }
               return;
             }
             dropEmptyAssistant();
@@ -312,9 +372,11 @@ export function useChat(companionId) {
   }, []);
 
   const clearConversation = useCallback(async () => {
+    historyTokenRef.current += 1; // invalidate any in-flight history load
     const payload = await yaarApi.clearMessages(companionId);
     if (!mounted.current) return;
-    setMessages(payload.messages.map(fromServer));
+    setMessages((current) => mergeHistory(current, payload.messages));
+    setError(null);
   }, [companionId]);
 
   const dismissError = useCallback(() => setError(null), []);
