@@ -1,0 +1,47 @@
+{
+  "name": "yaar-ai-companion",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Yaar \u2014 an AI companion app (girlfriend / boyfriend chat modes) with Hugging Face powered conversations, server-enforced daily message limits and persistent chat history.",
+  "type": "module",
+  "engines": {
+    "node": ">=20.11.0"
+  },
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "dev:mock-ai": "node scripts/dev-mock-hf.mjs",
+    "build": "vite build",
+    "start": "node server/index.js",
+    "serve": "node server/index.js",
+    "preview": "npm run build && node server/index.js",
+    "test": "npm run test:server && npm run test:client",
+    "test:server": "node --test \"tests/server/*.test.js\"",
+    "test:client": "vitest run",
+    "test:watch": "vitest",
+    "check:ai": "node scripts/check-ai.mjs",
+    "db:reset": "node scripts/db-reset.mjs",
+    "dev:api": "node server/index.js",
+    "icons": "node scripts/generate-icons.mjs",
+    "smoke": "node scripts/smoke-test.mjs",
+    "verify": "npm run test && npm run build && npm run smoke"
+  },
+  "dependencies": {
+    "better-sqlite3": "^13.0.3",
+    "cookie-parser": "^1.4.7",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "react-router-dom": "^7.18.4",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.3",
+    "@testing-library/user-event": "^14.6.7",
+    "@vitejs/plugin-react": "^6.1.1",
+    "jsdom": "^30.0.1",
+    "vite": "^8.3.0",
+    "vitest": "^5.0.1"
+  }
+}
