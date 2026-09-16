@@ -233,6 +233,7 @@ npm run check:ai       # send one real prompt to the configured provider and pri
 npm run test           # 138 automated tests (server + client)
 npm run smoke          # 41-check end-to-end run against a temporary database
 npm run inspect:request -- "hi"   # print the exact payload the chat sends to the provider
+npm run test:live      # real end-to-end test against Hugging Face (needs network + key)
 npm run check:secrets  # scan tracked files + the built bundle for leaked credentials
 npm run verify         # secrets scan + tests + production build + smoke test
 npm run build          # production client build → ./dist
@@ -416,6 +417,46 @@ Start-up logs the same thing, and warns loudly when `demo` or `local` is set:
 AI_PROVIDER=huggingface
 HUGGINGFACE_API_KEY=hf_...
 ```
+
+#### Live end-to-end test against the real provider
+
+```bash
+npm run test:live
+npm run test:live -- "mera aaj birthday hai" "mujhe aaj bohat gussa aa raha hai" "what are you doing?"
+```
+
+This is the only command that talks to Hugging Face over the internet, and it is the check to run
+after configuring a key. It:
+
+1. refuses to run unless `AI_PROVIDER=huggingface` (the stand-in is never used for the real chat),
+2. refuses to run with an empty key, and says where to put it (never printing the key),
+3. pings `<HF_BASE_URL>/models` and reports a blocked network as such instead of a confusing
+   timeout,
+4. boots the real app in-process with your `.env` and a throwaway database,
+5. sends each message over the same HTTP + SSE path the UI uses,
+6. prints the server's own evidence per call — provider, model, the model the endpoint echoed back
+   (`servedBy`), token usage and latency,
+7. re-reads the conversation from the history endpoint (what the chat screen loads on refresh) to
+   prove the reply was persisted, and
+8. fails if any reply is empty, if two replies are identical, or if a call never reached the
+   provider.
+
+Typical output:
+
+```
+2.1 message 1: "mera aaj birthday hai"
+   reply (61 chars): "Happy birthday yaar! 🎉 aaj ka din khaas hai — plan kya hai?"
+   upstream: huggingface | model=Qwen/Qwen3-8B | servedBy=Qwen/Qwen3-8B | tokens=118 | 940ms
+
+4. verdict
+  ✓ all 3 messages answered
+  ✓ every reply is different (no canned repetition)
+  ✓ every call reached the provider
+  ✓ every reply persisted for the chat UI
+```
+
+If egress is blocked (corporate proxy, restrictive CI rules) the script stops at step 3 with
+`SSL_ERROR_SYSCALL` / `ECONNRESET` and tells you to run it where the app will actually live.
 
 #### Inspect the exact request sent to the provider
 
@@ -681,6 +722,7 @@ npm run verify        # test + build + smoke — the pre-release gate
 | AI provider | `tests/server/aiProvider.test.js` | Reasoning filter (single chunk, split chunks, partial tags), SSE parsing, language mirroring, fallbacks (model + non-streaming), timeout, offline, empty reply, error mapping |
 | Prompt builder | `tests/server/promptBuilder.test.js` | Script detection, language instructions, history budgeting, same-role merging, persona integrity |
 | Secret handling (server) | `tests/server/envSecret.test.js` | The key is read from `HUGGINGFACE_API_KEY` (alias `HF_API_KEY`), never appears in an API response, is redacted in logs and errors, and warns by name when missing |
+| Live provider test | `npm run test:live` (`scripts/test-live.mjs`) | Real messages against Hugging Face: every message answered, all replies different, every call reached the provider, every reply persisted for the UI |
 | Provider requests | `tests/server/providerRequest.test.js` | The user's exact message reaches the provider, history is included, every message produces a distinct payload, the app invents no assistant text, and a provider failure surfaces as an error instead of a canned reply |
 | Secret handling (client) | `tests/client/secretHandling.test.jsx` | Client config exposes no secrets, no client file reads a server-only variable, no credential-shaped strings, the bundle points at our API only |
 | Composer | `tests/client/ChatComposer.test.jsx` | Typing integrity for all scripts, Enter/Shift+Enter, IME, send button, limit state, CSS contract |

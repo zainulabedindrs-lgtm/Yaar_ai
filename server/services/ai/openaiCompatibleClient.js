@@ -292,7 +292,16 @@ export class OpenAiCompatibleChatClient {
           onDelta,
           touch,
         });
-        this.#logSuccess({ model, startedAt, chars: result.text.length, stream: true });
+        this.#logSuccess({
+          model,
+          startedAt,
+          chars: result.text.length,
+          stream: true,
+          // What the endpoint said it served — the clearest evidence of which
+          // provider/model actually produced the reply.
+          servedBy: result.providerModel,
+          usage: result.usage,
+        });
         return result;
       }
 
@@ -303,11 +312,20 @@ export class OpenAiCompatibleChatClient {
       const text = `${filter.push(extractMessageText(payload))}${filter.finish()}`.trim();
       if (!text) throw ApiError.upstream(ERROR_CODES.AI_EMPTY);
       if (onDelta) onDelta(text);
-      this.#logSuccess({ model, startedAt, chars: text.length, stream: false });
+      this.#logSuccess({
+        model,
+        startedAt,
+        chars: text.length,
+        stream: false,
+        servedBy: typeof payload?.model === 'string' ? payload.model : undefined,
+        usage: payload?.usage,
+      });
       return {
         text,
         model,
         provider: this.id,
+        providerModel: typeof payload?.model === 'string' ? payload.model : model,
+        usage: payload?.usage ?? null,
         finishReason: payload?.choices?.[0]?.finish_reason ?? null,
       };
     } catch (error) {
@@ -335,6 +353,9 @@ export class OpenAiCompatibleChatClient {
     let buffer = '';
     let text = '';
     let finishReason = null;
+    /** The model id the endpoint echoes back, plus token usage when offered. */
+    let servedModel = model;
+    let usage = null;
 
     const emit = (chunk) => {
       if (!chunk) return;
@@ -358,9 +379,12 @@ export class OpenAiCompatibleChatClient {
 
         if (parsed === DONE_SENTINEL) {
           emit(filter.finish());
-          return { text, model, provider: this.id, finishReason };
+          return { text, model, provider: this.id, providerModel: servedModel, usage, finishReason };
         }
         if (!parsed) continue;
+
+        if (typeof parsed.model === 'string') servedModel = parsed.model;
+        if (parsed.usage) usage = parsed.usage;
 
         if (parsed.error) {
           logger.warn('ai stream returned error payload', {
@@ -387,7 +411,7 @@ export class OpenAiCompatibleChatClient {
 
     if (!text.trim()) throw ApiError.upstream(ERROR_CODES.AI_EMPTY);
 
-    return { text, model, provider: this.id, finishReason };
+    return { text, model, provider: this.id, providerModel: servedModel, usage, finishReason };
   }
 
   /** Hugging Face accepts "model:provider"; a pin can also come from config. */
@@ -422,10 +446,14 @@ export class OpenAiCompatibleChatClient {
     return ApiError.upstream(ERROR_CODES.AI_UNAVAILABLE, undefined, { status });
   }
 
-  #logSuccess({ model, startedAt, chars, stream }) {
+  #logSuccess({ model, startedAt, chars, stream, servedBy, usage }) {
     logger.info('ai reply generated', {
       provider: this.id,
       model,
+      // Present when the endpoint reports it (Hugging Face echoes the model it
+      // routed to). Useful proof of which backend answered.
+      ...(servedBy && servedBy !== model ? { servedBy } : {}),
+      ...(usage ? { tokens: usage.total_tokens ?? undefined } : {}),
       stream,
       chars,
       ms: Date.now() - startedAt,
