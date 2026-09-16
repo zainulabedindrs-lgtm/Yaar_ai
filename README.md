@@ -743,6 +743,7 @@ npx cap open android
 | Client shows the “API is running” page | The client has not been built. Use `npm run dev` (Vite) or `npm run build`. |
 | Vite/API disagreement in dev | `npm run dev` proxies `/api`; if you changed `PORT`, restart `npm run dev` so the proxy target follows. |
 | `better-sqlite3` install failure | Needs a Node version with matching prebuilds (Node 20/22). Reinstall with `npm rebuild better-sqlite3`. |
+| `npm install` fails in `node-gyp` with `ECONNRESET` while fetching Node headers | The sandbox has no access to nodejs.org. `better-sqlite3` ships prebuilt binaries inside the npm tarball, so `npm ci --ignore-scripts` installs everything and the prebuild is used automatically. |
 | Keyboard covers the composer (iOS) | Ensure the iOS 15.4+ viewport behaviour is present (`interactive-widget` + `useVisualViewport`); in the Capacitor app set `Keyboard.resize: "body"` (already configured). |
 | Tests fail with “Cannot find module” | Run from the repository root (`npm run test`), and make sure `npm install` completed. |
 
