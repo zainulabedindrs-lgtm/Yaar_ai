@@ -348,6 +348,11 @@ export function aiStatus() {
     fallbackModels: provider.models.slice(1),
     streaming: config.ai.streaming,
     configured: provider.isConfigured,
+    // Never let a stand-in pass for a real model: the UI and /api/health can
+    // both see that replies are not coming from a hosted model.
+    local: config.ai.localProvider,
+    demo: config.ai.demoProvider,
+    host: config.ai.providerHost || null,
   };
 }
 

@@ -24,7 +24,8 @@
     "icons": "node scripts/generate-icons.mjs",
     "smoke": "node scripts/smoke-test.mjs",
     "verify": "npm run check:secrets && npm run test && npm run build && npm run check:secrets && npm run smoke",
-    "check:secrets": "node scripts/check-secrets.mjs"
+    "check:secrets": "node scripts/check-secrets.mjs",
+    "inspect:request": "node scripts/inspect-provider-request.mjs"
   },
   "dependencies": {
     "better-sqlite3": "^13.0.3",

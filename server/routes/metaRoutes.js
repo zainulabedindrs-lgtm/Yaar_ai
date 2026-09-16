@@ -34,6 +34,11 @@ export function registerMetaRoutes(router) {
           model: ai.model,
           configured: ai.configured,
           streaming: ai.streaming,
+          /** true when the endpoint is machine-local (not a hosted model) */
+          local: ai.local,
+          /** true when the bundled canned-reply stand-in is answering */
+          demo: ai.demo,
+          host: ai.host,
         },
         database,
         app: appMetadata(),

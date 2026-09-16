@@ -64,7 +64,43 @@ function parseModelList() {
   return [primary, ...fallbacks].filter((model, index, all) => all.indexOf(model) === index);
 }
 
+/**
+ * Detects when the configured provider is NOT a hosted model.
+ *
+ * This exists because a stand-in endpoint (the bundled mock, or a local server)
+ * answering in place of a real model is indistinguishable from the outside — and
+ * that is exactly how a chat ends up "repeating itself". The flags are reported
+ * by `/api/health` and warned about at boot, so the active provider is always
+ * visible instead of assumed.
+ *
+ * `local` — the base URL points at this machine (Ollama, LM Studio, mock…).
+ * `demo`  — the bundled canned-reply stand-in is in use (never real AI).
+ *
+ * @returns {{ local: boolean, demo: boolean, host: string }}
+ */
+function detectProviderKind() {
+  if (str('AI_PROVIDER', 'huggingface').toLowerCase() !== 'openai-compatible') {
+    return { local: false, demo: false, host: '' };
+  }
+
+  const baseUrl = str('OPENAI_COMPATIBLE_BASE_URL', 'http://127.0.0.1:11434/v1');
+  const model = str('OPENAI_COMPATIBLE_MODEL', 'qwen2.5:7b-instruct');
+
+  let host = '';
+  try {
+    host = new URL(baseUrl).hostname;
+  } catch {
+    host = '';
+  }
+
+  const isLoopback = ['127.0.0.1', 'localhost', '::1', '0.0.0.0', '[::1]'].includes(host);
+  const isBundledMock = /^yaar-mock/i.test(model);
+
+  return { local: isLoopback, demo: isBundledMock, host };
+}
+
 const sessionSecret = str('SESSION_SECRET', '') || (isProduction ? '' : DEFAULT_SESSION_SECRET);
+const providerKind = detectProviderKind();
 
 export const config = {
   env: NODE_ENV,
@@ -83,6 +119,12 @@ export const config = {
 
   ai: {
     provider: str('AI_PROVIDER', 'huggingface').toLowerCase(),
+    /** True when replies come from a machine-local endpoint, not a hosted model. */
+    localProvider: providerKind.local,
+    /** True when the bundled canned-reply stand-in is configured. */
+    demoProvider: providerKind.demo,
+    /** Host of the configured endpoint (diagnostics only). */
+    providerHost: providerKind.host,
     streaming: bool('AI_STREAMING', true),
     temperature: num('HF_TEMPERATURE', 0.85),
     topP: num('HF_TOP_P', 0.95),
@@ -156,6 +198,18 @@ export function configWarnings() {
       config.ai.provider === 'huggingface'
         ? 'HUGGINGFACE_API_KEY is not set — chat replies will fail with a friendly "AI not connected" message. Add it to .env.'
         : 'OPENAI_COMPATIBLE_BASE_URL is not set — chat replies will fail.',
+    );
+  }
+
+  if (config.ai.demoProvider) {
+    warnings.push(
+      'AI_PROVIDER=openai-compatible with the bundled stand-in model: replies are CANNED test text, ' +
+        'not AI. For real conversations set AI_PROVIDER=huggingface and HUGGINGFACE_API_KEY in .env.',
+    );
+  } else if (config.ai.localProvider) {
+    warnings.push(
+      `The AI provider points at a machine-local endpoint (${config.ai.providerHost}). Replies come ` +
+        'from that server, not a hosted model — make sure it is actually running a model.',
     );
   }
 

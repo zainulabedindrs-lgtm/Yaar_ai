@@ -232,6 +232,7 @@ npm run dev:api        # only the API server
 npm run check:ai       # send one real prompt to the configured provider and print the reply
 npm run test           # 138 automated tests (server + client)
 npm run smoke          # 41-check end-to-end run against a temporary database
+npm run inspect:request -- "hi"   # print the exact payload the chat sends to the provider
 npm run check:secrets  # scan tracked files + the built bundle for leaked credentials
 npm run verify         # secrets scan + tests + production build + smoke test
 npm run build          # production client build → ./dist
@@ -377,6 +378,69 @@ run `npm run check:secrets` again. Rotating takes a minute; leaving a live key e
    ```
 
    You should see the provider, model, latency and a Roman-Urdu reply.
+
+### 8.2 Which provider is actually answering?
+
+A chat that "repeats itself" almost always means a stand-in endpoint is answering instead of a
+model. The app now makes the active provider explicit, so this is never a guess:
+
+```bash
+curl -s localhost:8787/api/health | python3 -m json.tool
+```
+
+```json
+"ai": { "provider": "huggingface", "model": "Qwen/Qwen3-8B",
+        "configured": true, "streaming": true,
+        "local": false, "demo": false, "host": null }
+```
+
+| Field | Meaning |
+| --- | --- |
+| `provider` / `model` | exactly what is being called (`huggingface` is the real router) |
+| `configured` | `false` → no API key, so the chat shows "not connected" instead of replying |
+| `local` | `true` → the endpoint is on this machine (Ollama, LM Studio, the bundled stand-in): replies come from that server, **not** a hosted model |
+| `demo` | `true` → the **bundled canned-reply stand-in** is configured. Its replies are fixed strings, not AI |
+| `host` | host of the configured endpoint (diagnostics) |
+
+Start-up logs the same thing, and warns loudly when `demo` or `local` is set:
+
+```
+{"level":"warn","event":"config warning","message":"AI_PROVIDER=openai-compatible with the
+ bundled stand-in model: replies are CANNED test text, not AI. …"}
+```
+
+**The stand-in is for tests and offline development only — never for the real chat.** If `demo` is
+`true` in `/api/health`, fix `.env`:
+
+```ini
+AI_PROVIDER=huggingface
+HUGGINGFACE_API_KEY=hf_...
+```
+
+#### Inspect the exact request sent to the provider
+
+No key, no internet and no model required — this boots the real app with a recording endpoint and
+prints the payload for the messages you pass:
+
+```bash
+npm run inspect:request -- "mera aaj birthday hai" "what are you doing?"
+```
+
+```
+── message 1: "mera aaj birthday hai"
+   HTTP 200  |  upstream requests: 1
+   user text present in payload: yes
+   history turns sent: 3
+   payload sent upstream:
+     [system] You are Ayesha, the user's warm and caring girlfriend in a texting conversation…
+     [assistant] Hii, tum aagaye 🥰 Tell me everything — your day kaisa tha?
+     [user] mera aaj birthday hai
+```
+
+That is the whole contract: your message, the persona, and the recent history — one request per
+message, different for every message. `tests/server/providerRequest.test.js` asserts the same
+things automatically (including that a provider failure surfaces as an error rather than invented
+text).
 
 ### Choosing a model
 
@@ -617,6 +681,7 @@ npm run verify        # test + build + smoke — the pre-release gate
 | AI provider | `tests/server/aiProvider.test.js` | Reasoning filter (single chunk, split chunks, partial tags), SSE parsing, language mirroring, fallbacks (model + non-streaming), timeout, offline, empty reply, error mapping |
 | Prompt builder | `tests/server/promptBuilder.test.js` | Script detection, language instructions, history budgeting, same-role merging, persona integrity |
 | Secret handling (server) | `tests/server/envSecret.test.js` | The key is read from `HUGGINGFACE_API_KEY` (alias `HF_API_KEY`), never appears in an API response, is redacted in logs and errors, and warns by name when missing |
+| Provider requests | `tests/server/providerRequest.test.js` | The user's exact message reaches the provider, history is included, every message produces a distinct payload, the app invents no assistant text, and a provider failure surfaces as an error instead of a canned reply |
 | Secret handling (client) | `tests/client/secretHandling.test.jsx` | Client config exposes no secrets, no client file reads a server-only variable, no credential-shaped strings, the bundle points at our API only |
 | Composer | `tests/client/ChatComposer.test.jsx` | Typing integrity for all scripts, Enter/Shift+Enter, IME, send button, limit state, CSS contract |
 | API client | `tests/client/apiClient.test.js` | Device header, error mapping, offline, timeout, cancellation, usage details |
@@ -736,6 +801,7 @@ npx cap open android
 | 401/403 from the provider | Token revoked or missing the Inference Providers permission — create a new one. |
 | 404/400/503 from the provider | Model unavailable for your account/provider routing. Try another `HF_MODEL`, or pin a provider (`HF_INFERENCE_PROVIDER=together`). |
 | Replies take too long | Raise `HF_TIMEOUT_MS` / `HF_IDLE_TIMEOUT_MS`, or switch to a smaller model. |
+| The AI repeats the same reply for different messages | A stand-in endpoint is answering. Check `/api/health`: if `demo` is `true` the bundled canned stand-in is configured, if `local` is `true` the endpoint is machine-local. Set `AI_PROVIDER=huggingface` + `HUGGINGFACE_API_KEY`, restart, and confirm with `npm run inspect:request -- "test message"`. |
 | “Slow down a little 😅” | The per-minute rate limit was hit; wait a few seconds (product limit is separate). |
 | Limit reached but it should have reset | The window is rolling (first message + 24 h), not midnight-based. Settings shows the exact reset time. For local testing: `POST /api/chat/dev/reset-usage` (dev only) or delete `data/yaar.sqlite`. |
 | Counter looks wrong after clearing site data | The device id was regenerated, so a new anonymous user started. Expected, and how anonymity works before real login. |
