@@ -1,0 +1,144 @@
+/* ==========================================================================
+   Yaar — design tokens
+   Soft, warm, rounded and readable. Light theme by default, gentle dark theme
+   when the OS asks for it. Every colour is defined once here.
+   ========================================================================== */
+
+:root {
+  --font-sans:
+    'Inter var', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue',
+    'Noto Sans', 'Noto Nastaliq Urdu', 'Noto Sans Devanagari', 'Nirmala UI', system-ui,
+    'Apple Color Emoji', 'Segoe UI Emoji', sans-serif;
+
+  /* brand */
+  --pink-100: #ffe6ef;
+  --pink-300: #ffb3cd;
+  --pink-500: #ff5f8f;
+  --pink-600: #ef4880;
+  --violet-400: #a06bff;
+  --violet-500: #8b5cf6;
+  --blue-400: #6ea8ff;
+  --blue-500: #3f8cff;
+  --blue-600: #2f7bee;
+  --amber-400: #ffc247;
+  --green-500: #23a55a;
+  --red-500: #e5484d;
+
+  /* surfaces (light) */
+  --bg: #fff7fa;
+  --bg-gradient: radial-gradient(1200px 600px at 12% -10%, #ffe9f2 0%, transparent 60%),
+    radial-gradient(900px 500px at 100% 0%, #eef2ff 0%, transparent 55%),
+    linear-gradient(180deg, #fffafc 0%, #fdf7ff 100%);
+  --surface: #ffffff;
+  --surface-soft: #fdf3f8;
+  --surface-strong: #ffffff;
+  --border: #f0dfe8;
+  --border-strong: #e5cede;
+
+  /* text */
+  --text: #2b1b2f;
+  --text-soft: #5f4a67;
+  --text-muted: #8c7a93;
+  --text-on-accent: #ffffff;
+
+  /* effects */
+  --shadow-xs: 0 1px 2px rgba(70, 30, 60, 0.06);
+  --shadow-sm: 0 6px 16px rgba(120, 45, 90, 0.07);
+  --shadow-md: 0 12px 28px rgba(120, 45, 90, 0.1);
+  --shadow-lg: 0 22px 50px rgba(110, 35, 85, 0.16);
+
+  /* radii */
+  --radius-xs: 10px;
+  --radius-sm: 14px;
+  --radius-md: 18px;
+  --radius-lg: 24px;
+  --radius-xl: 32px;
+  --radius-pill: 999px;
+
+  /* spacing / layout */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-7: 32px;
+  --header-height: 62px;
+  --nav-height: 64px;
+  --content-max: 720px;
+  --sheet-max: 520px;
+
+  /* motion */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --transition-fast: 140ms var(--ease-out);
+  --transition: 220ms var(--ease-out);
+
+  /* accents (overridden per companion via [data-accent]) */
+  --accent: var(--pink-500);
+  --accent-strong: var(--pink-600);
+  --accent-soft: var(--pink-100);
+  --accent-gradient: linear-gradient(135deg, var(--pink-400-mix, #ff8fb1) 0%, var(--pink-500) 100%);
+  --accent-contrast: #ffffff;
+
+  /* safe areas */
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  /* live keyboard inset, written by useVisualViewport() */
+  --keyboard-inset: 0px;
+}
+
+/* Girlfriend / Ayesha — warm pink */
+[data-accent='girlfriend'] {
+  --accent: var(--pink-500);
+  --accent-strong: var(--pink-600);
+  --accent-soft: var(--pink-100);
+  --accent-gradient: linear-gradient(135deg, #ff9fbe 0%, #ff5f8f 55%, #f4477f 100%);
+}
+
+/* Boyfriend / Hamza — calm blue */
+[data-accent='boyfriend'] {
+  --accent: var(--blue-500);
+  --accent-strong: var(--blue-600);
+  --accent-soft: #e6efff;
+  --accent-gradient: linear-gradient(135deg, #86b6ff 0%, #3f8cff 55%, #2f7bee 100%);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #171018;
+    --bg-gradient: radial-gradient(1000px 500px at 15% -10%, #3a1e33 0%, transparent 60%),
+      radial-gradient(800px 460px at 100% 0%, #1e2140 0%, transparent 55%),
+      linear-gradient(180deg, #1b131c 0%, #141017 100%);
+    --surface: #221a26;
+    --surface-soft: #2a2030;
+    --surface-strong: #2c2231;
+    --border: #362a3c;
+    --border-strong: #453449;
+
+    --text: #f7eef5;
+    --text-soft: #d7c6dd;
+    --text-muted: #a895b0;
+
+    --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --shadow-sm: 0 6px 16px rgba(0, 0, 0, 0.35);
+    --shadow-md: 0 14px 30px rgba(0, 0, 0, 0.42);
+    --shadow-lg: 0 24px 54px rgba(0, 0, 0, 0.5);
+
+    --pink-100: #3b2030;
+    --accent-soft: #3b2030;
+  }
+
+  [data-accent='boyfriend'] {
+    --accent-soft: #1d2a44;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}

@@ -1,0 +1,28 @@
+<svg width="64" height="64" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="grad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#ff9fbe" />
+      <stop offset="55%" stop-color="#ff5f8f" />
+      <stop offset="100%" stop-color="#f4477f" />
+    </linearGradient>
+    <radialGradient id="glow" cx="30%" cy="18%" r="80%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.42" />
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0" />
+    </radialGradient>
+  </defs>
+  <rect x="0" y="0" width="64" height="64" rx="15.36" fill="url(#grad)" />
+  <rect x="0" y="0" width="64" height="64" rx="15.36" fill="url(#glow)" />
+  <g transform="translate(32 32)">
+    <text
+      x="0"
+      y="11.2"
+      text-anchor="middle"
+      font-family="Inter, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif"
+      font-size="32"
+      font-weight="800"
+      letter-spacing="-0.96"
+      fill="#ffffff"
+    >Y</text>
+    <circle cx="11.84" cy="13.44" r="2.88" fill="#ffffff" opacity="0.9" />
+  </g>
+</svg>

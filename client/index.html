@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <!--
+      interactive-widget=resizes-content keeps the mobile keyboard from covering
+      the composer; viewport-fit=cover enables safe-area insets on notched phones.
+    -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content"
+    />
+    <meta name="theme-color" content="#fff5f9" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#171018" media="(prefers-color-scheme: dark)" />
+    <meta name="description" content="Yaar — someone to talk to, anytime. An AI companion for when you feel bored or lonely." />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="Yaar" />
+    <title>Yaar — someone to talk to, anytime</title>
+
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" href="/icons/favicon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+    <link rel="preload" as="image" href="/avatars/ayesha.png" />
+    <link rel="preload" as="image" href="/avatars/hamza.png" />
+  </head>
+  <body>
+    <div id="root"></div>
+    <noscript>Yaar needs JavaScript enabled to chat with you 💛</noscript>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>
