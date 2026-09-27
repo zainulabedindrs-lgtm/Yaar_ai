@@ -2,7 +2,7 @@
  * Express application factory.
  *
  * `createApp()` is used by `server/index.js` for real traffic and by the test
- * suite (with an in-memory database and a stub AI provider), so the tested
+ * suite (with an in-memory PGlite database and a stub AI provider), so the tested
  * surface is exactly the deployed one.
  */
 
@@ -25,7 +25,11 @@ import { logger } from './utils/logger.js';
  * @returns {import('express').Express}
  */
 export function createApp({ clientDistPath = config.server.clientDistPath } = {}) {
-  initDatabase();
+  // Warm the connection + migrations up front. Queries also initialise lazily,
+  // so a slow database never blocks the app from answering health checks.
+  initDatabase().catch((error) => {
+    logger.error('database init failed', { message: String(error?.message) });
+  });
 
   for (const warning of configWarnings()) logger.warn('config warning', { message: warning });
 
@@ -47,7 +51,8 @@ export function createApp({ clientDistPath = config.server.clientDistPath } = {}
         "img-src 'self' data: blob:",
         "style-src 'self' 'unsafe-inline'",
         "script-src 'self'",
-        "connect-src 'self'",
+        // Supabase Auth runs in the browser (supabase-js talks to the project).
+        `connect-src 'self'${config.auth.enabled ? ` ${config.auth.supabaseUrl}` : ''}`,
         "font-src 'self' data:",
         "object-src 'none'",
         "base-uri 'self'",

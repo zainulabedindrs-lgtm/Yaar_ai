@@ -31,6 +31,7 @@ import { startMockAiServer } from './mockAiServer.mjs';
 // Keep the test database out of the real one.
 process.env.NODE_ENV = 'test';
 process.env.DATABASE_PATH = process.env.SMOKE_DATABASE_PATH || ':memory:';
+process.env.DATABASE_URL = ''; // never touch a real Postgres from this script
 process.env.SESSION_SECRET = process.env.SESSION_SECRET || 'smoke-test-secret-not-for-production';
 process.env.AI_PROVIDER = 'openai-compatible';
 process.env.AI_STREAMING = 'true';
@@ -316,7 +317,7 @@ try {
   await mock.close();
   // The SQLite handle keeps the process alive if it is not closed.
   const { closeDatabase } = await import('../server/db/database.js');
-  closeDatabase();
+  await closeDatabase();
 }
 
 process.exit(exitCode);

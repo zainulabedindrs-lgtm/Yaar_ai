@@ -2,7 +2,8 @@
  * Client configuration.
  *
  * Only `VITE_*` variables are visible in the browser bundle — never put a
- * secret here. The Hugging Face key lives in the server environment.
+ * secret here. AI keys and the Supabase secret key live in the server
+ * environment only; the Supabase URL + publishable key are public by design.
  */
 
 const env = import.meta.env ?? {};
@@ -29,4 +30,5 @@ export const ROUTES = {
   about: '/about',
   privacy: '/privacy',
   terms: '/terms',
+  auth: '/auth',
 };

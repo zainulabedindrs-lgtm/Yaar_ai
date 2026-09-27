@@ -2,7 +2,7 @@
   "name": "yaar-ai-companion",
   "version": "1.0.0",
   "private": true,
-  "description": "Yaar \u2014 an AI companion app (girlfriend / boyfriend chat modes) with Hugging Face powered conversations, server-enforced daily message limits and persistent chat history.",
+  "description": "Yaar — an AI companion app (girlfriend / boyfriend chat modes) with Hugging Face powered conversations, server-enforced daily message limits and persistent chat history.",
   "type": "module",
   "engines": {
     "node": ">=20.11.0"
@@ -29,10 +29,13 @@
     "test:live": "node scripts/test-live.mjs"
   },
   "dependencies": {
-    "better-sqlite3": "^13.0.3",
+    "@electric-sql/pglite": "^0.5.8",
+    "@supabase/supabase-js": "^2.117.2",
     "cookie-parser": "^1.4.7",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
+    "jose": "^6.2.12",
+    "pg": "^8.23.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "react-router-dom": "^7.18.4",

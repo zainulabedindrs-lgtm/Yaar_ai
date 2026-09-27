@@ -120,6 +120,7 @@ if (!reachable) {
 // 3. Boot the real app with a throwaway database
 // ---------------------------------------------------------------------------
 process.env.DATABASE_PATH = ':memory:';
+process.env.DATABASE_URL = ''; // never touch a real Postgres from this script
 
 const { createApp } = await import('../server/app.js');
 const { closeDatabase } = await import('../server/db/database.js');
@@ -294,7 +295,7 @@ await shutdown(ok ? 0 : 1);
 async function shutdown(code) {
   try {
     await new Promise((resolve) => server?.close(resolve));
-    closeDatabase?.();
+    await closeDatabase?.();
   } catch {
     // best effort
   }

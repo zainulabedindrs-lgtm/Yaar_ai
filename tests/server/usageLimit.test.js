@@ -1,7 +1,7 @@
 /**
  * The rules that decide how many messages a user can send.
  *
- * These tests hit the real services and the real SQLite database — no mocks —
+ * These tests hit the real services and the real (embedded PGlite) Postgres database — no mocks —
  * because the whole point of the limit is that it is enforced server-side.
  */
 
@@ -12,7 +12,7 @@ import { loadServer, useTestEnv } from './helpers.js';
 
 useTestEnv({ DAILY_MESSAGE_LIMIT: '20' });
 
-const { initDatabase, closeDatabase, getDb, chatService, usageService, messagesRepo } =
+const { initDatabase, closeDatabase, query, chatService, usageService, messagesRepo } =
   await loadServer();
 
 const USER = 'usr_test_user_0001';
@@ -20,14 +20,14 @@ const OTHER_USER = 'usr_test_user_0002';
 const COMPANION = 'girlfriend';
 
 /** Stores one user message and one AI reply, like a real turn does. */
-function recordTurn({ withReply = true } = {}) {
-  const turn = chatService.beginTurn({
+async function recordTurn({ withReply = true } = {}) {
+  const turn = await chatService.beginTurn({
     userId: USER,
     companionId: COMPANION,
     content: 'hello there',
   });
   if (withReply) {
-    chatService.saveAssistantReply({
+    await chatService.saveAssistantReply({
       userId: USER,
       conversation: turn.conversation,
       content: 'hi, I am here 💛',
@@ -39,16 +39,16 @@ function recordTurn({ withReply = true } = {}) {
 }
 
 describe('daily usage limit', () => {
-  before(() => {
-    initDatabase();
+  before(async () => {
+    await initDatabase();
   });
 
-  after(() => {
-    closeDatabase();
+  after(async () => {
+    await closeDatabase();
   });
 
-  test('starts at zero with the configured limit', () => {
-    const usage = usageService.getUsageState(USER);
+  test('starts at zero with the configured limit', async () => {
+    const usage = await usageService.getUsageState(USER);
     assert.equal(usage.used, 0);
     assert.equal(usage.limit, 20);
     assert.equal(usage.remaining, 20);
@@ -56,31 +56,32 @@ describe('daily usage limit', () => {
     assert.ok(usage.resetAt > Date.now(), 'the window should expire in the future');
   });
 
-  test('accepts exactly 20 user messages, counting only user messages', () => {
+  test('accepts exactly 20 user messages, counting only user messages', async () => {
     for (let index = 1; index <= 20; index += 1) {
-      const turn = recordTurn();
+      const turn = await recordTurn();
       assert.equal(turn.usage.used, index, `message ${index} should be counted`);
       assert.equal(turn.usage.remaining, 20 - index);
     }
 
-    const usage = usageService.getUsageState(USER);
+    const usage = await usageService.getUsageState(USER);
     assert.equal(usage.used, 20);
     assert.equal(usage.exhausted, true);
 
     // 20 user messages + 20 AI replies + 1 seeded greeting were stored, yet the
     // counter says 20: only user messages count.
-    const conversationRow = getDb()
-      .prepare('SELECT id FROM conversations WHERE user_id = ? LIMIT 1')
-      .get(USER);
-    const rows = messagesRepo.listMessages(conversationRow.id, { limit: 500 });
+    const [conversationRow] = await query(
+      'SELECT id FROM conversations WHERE user_id = $1 LIMIT 1',
+      [USER],
+    );
+    const rows = await messagesRepo.listMessages(conversationRow.id, { limit: 500 });
     assert.equal(rows.filter((row) => row.sender === 'user').length, 20);
     assert.equal(rows.filter((row) => row.sender === 'assistant').length, 21);
     assert.equal(rows[0].model, 'yaar-greeting', 'the greeting is seeded first');
-    assert.equal(usageService.getUsageState(USER).used, 20);
+    assert.equal((await usageService.getUsageState(USER)).used, 20);
   });
 
-  test('rejects message 21 with the limit error and usage details', () => {
-    assert.throws(
+  test('rejects message 21 with the limit error and usage details', async () => {
+    await assert.rejects(
       () => chatService.beginTurn({ userId: USER, companionId: COMPANION, content: 'message 21' }),
       (error) => {
         assert.equal(error.status, 429);
@@ -92,63 +93,60 @@ describe('daily usage limit', () => {
     );
   });
 
-  test('a rejected message is never stored', () => {
-    const rows = getDb()
-      .prepare("SELECT COUNT(*) AS count FROM messages WHERE content = 'message 21'")
-      .get();
+  test('a rejected message is never stored', async () => {
+    const [rows] = await query("SELECT COUNT(*) AS count FROM messages WHERE content = 'message 21'");
     assert.equal(rows.count, 0);
-    assert.equal(usageService.getUsageState(USER).used, 20);
+    assert.equal((await usageService.getUsageState(USER)).used, 20);
   });
 
-  test('a window rollover frees the allowance again', () => {
+  test('a window rollover frees the allowance again', async () => {
     // Simulate 24 hours passing by moving the stored window into the past.
     const past = Date.now() - 25 * 60 * 60 * 1000;
-    getDb()
-      .prepare(
-        'UPDATE usage_limits SET window_started_at = ?, window_expires_at = ? WHERE user_id = ?',
-      )
-      .run(past, past + 1000, USER);
+    await query(
+      'UPDATE usage_limits SET window_started_at = $1, window_expires_at = $2 WHERE user_id = $3',
+      [past, past + 1000, USER],
+    );
 
-    const usage = usageService.getUsageState(USER);
+    const usage = await usageService.getUsageState(USER);
     assert.equal(usage.used, 0, 'the counter resets once the window has passed');
     assert.equal(usage.exhausted, false);
 
-    const turn = chatService.beginTurn({ userId: USER, companionId: COMPANION, content: 'new day' });
+    const turn = await chatService.beginTurn({ userId: USER, companionId: COMPANION, content: 'new day' });
     assert.equal(turn.usage.used, 1);
   });
 
-  test('a refund gives the message back after an AI failure', () => {
-    const before = usageService.getUsageState(USER).used;
-    const turn = chatService.beginTurn({
+  test('a refund gives the message back after an AI failure', async () => {
+    const before = (await usageService.getUsageState(USER)).used;
+    const turn = await chatService.beginTurn({
       userId: USER,
       companionId: COMPANION,
       content: 'this one will fail',
     });
     assert.equal(turn.usage.used, before + 1);
 
-    const refunded = chatService.refundTurn(USER);
+    const refunded = await chatService.refundTurn(USER);
     assert.equal(refunded.used, before);
 
     // Refunds never push the counter below zero.
-    chatService.refundTurn(USER);
-    chatService.refundTurn(USER);
-    assert.equal(usageService.getUsageState(USER).used, 0);
+    await chatService.refundTurn(USER);
+    await chatService.refundTurn(USER);
+    assert.equal((await usageService.getUsageState(USER)).used, 0);
   });
 
-  test('usage is tracked per user', () => {
-    assert.equal(usageService.getUsageState(OTHER_USER).used, 0);
-    const turn = chatService.beginTurn({
+  test('usage is tracked per user', async () => {
+    assert.equal((await usageService.getUsageState(OTHER_USER)).used, 0);
+    const turn = await chatService.beginTurn({
       userId: OTHER_USER,
       companionId: COMPANION,
       content: 'hi from another device',
     });
     assert.equal(turn.usage.used, 1);
-    assert.equal(usageService.getUsageState(USER).used, 0, 'the first user is unaffected');
+    assert.equal((await usageService.getUsageState(USER)).used, 0, 'the first user is unaffected');
   });
 
-  test('resending with the same clientMessageId never consumes a second credit', () => {
+  test('resending with the same clientMessageId never consumes a second credit', async () => {
     const clientMessageId = 'client-message-id-abc-123';
-    const first = chatService.beginTurn({
+    const first = await chatService.beginTurn({
       userId: OTHER_USER,
       companionId: COMPANION,
       content: 'did this arrive?',
@@ -157,7 +155,7 @@ describe('daily usage limit', () => {
     assert.equal(first.duplicate, false);
     assert.equal(first.usage.used, 2);
 
-    const second = chatService.beginTurn({
+    const second = await chatService.beginTurn({
       userId: OTHER_USER,
       companionId: COMPANION,
       content: 'did this arrive?',
@@ -167,14 +165,30 @@ describe('daily usage limit', () => {
     assert.equal(second.usage.used, 2, 'the retry must not be counted again');
 
     // And only one copy of the message exists.
-    const rows = messagesRepo.listMessages(first.conversation.id, { limit: 500 });
+    const rows = await messagesRepo.listMessages(first.conversation.id, { limit: 500 });
     assert.equal(rows.filter((row) => row.id === clientMessageId).length, 1);
   });
 
-  test('remaining window time is reported for the UI', () => {
-    const usage = usageService.getUsageState(OTHER_USER);
+  test('remaining window time is reported for the UI', async () => {
+    const usage = await usageService.getUsageState(OTHER_USER);
     assert.ok(usage.msUntilReset > 0);
     assert.ok(usage.msUntilReset <= 24 * 60 * 60 * 1000);
     assert.equal(typeof usage.resetAt, 'number');
+  });
+
+  test('concurrent sends can never exceed the limit', async () => {
+    const racer = 'usr_test_user_race';
+    const results = await Promise.allSettled(
+      Array.from({ length: 30 }, (_, index) =>
+        chatService.beginTurn({ userId: racer, companionId: COMPANION, content: `race ${index}` }),
+      ),
+    );
+    const accepted = results.filter((result) => result.status === 'fulfilled').length;
+    const rejected = results.filter(
+      (result) => result.status === 'rejected' && result.reason?.code === 'daily_limit_reached',
+    ).length;
+    assert.equal(accepted, 20);
+    assert.equal(rejected, 10);
+    assert.equal((await usageService.getUsageState(racer)).used, 20);
   });
 });

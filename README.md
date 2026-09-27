@@ -7,7 +7,7 @@ someone to talk to. The user picks a companion — **Your Girlfriend (Ayesha)** 
 **Your Boyfriend (Hamza)** — and has a real, streamed AI conversation that automatically follows
 their language: English, **اردو**, **हिन्दी**, Roman Urdu/Hindi, or any natural mix of them.
 
-It is a complete, production-shaped application: a React client, an Express API, a SQLite
+It is a complete, production-shaped application: a React client, an Express API, a Postgres
 database, a provider-agnostic AI service layer built for **Hugging Face Inference Providers**, a
 server-enforced **20 messages / 24 hours** limit, persistent chat history, and a test suite that
 covers the chat pipeline end to end.
@@ -54,7 +54,7 @@ covers the chat pipeline end to end.
   the configured model (default `Qwen/Qwen3-8B` on Hugging Face), streamed token by token.
 * **Honest by design.** The personas never pretend to be human if sincerely asked, never use guilt
   or "you only need me" pressure, and hand off to real help when the conversation turns serious.
-* **Server-enforced limits.** 20 user messages per rolling 24 hours, tracked in SQLite against an
+* **Server-enforced limits.** 20 user messages per rolling 24 hours, tracked in Postgres against an
   anonymous session — not in `localStorage`.
 
 ## 2. Feature list
@@ -67,7 +67,7 @@ covers the chat pipeline end to end.
 | Chat UI | Header with avatar + presence, day separators, user/assistant bubbles, typing indicator, timestamps, stop button, auto-scroll with "jump to latest", optimistic sending |
 | Input | Auto-growing composer, word-safe wrapping, IME-safe Enter handling, `dir="auto"`, character counter, limit state |
 | Usage limit | 20 user messages / rolling 24 h, server-side, atomic with message insert, refund on AI failure, live counter, friendly limit card with countdown, per-companion conversations sharing one budget |
-| History | SQLite persistence, survives reload/restart, paginated history API, clear-conversation action (with confirmation), never deleted at the limit |
+| History | Postgres persistence, survives reload/restart, paginated history API, clear-conversation action (with confirmation), never deleted at the limit |
 | Home | Brand hero, tagline, usage meter, two premium companion cards with Continue-chat state |
 | Settings | Companion switcher, live usage + reset time, language behaviour, session info, privacy summary, clear chat, delete all data (both confirmed), version, AI model, legal links |
 | About / Privacy / Terms | Written to match what the code actually does |
@@ -173,7 +173,7 @@ Yaar_ai/
     │      usageService.consumeMessage()  (429 when exhausted) │
     │      INSERT user message                                 │
     ▼                                                          │
-  SQLite (better-sqlite3)                                      │
+  Postgres (pg / PGlite)                                      │
     users / conversations / messages / usage_limits            │
     ▲                                                          │
     │  chatService.saveAssistantReply()                        │
@@ -201,7 +201,7 @@ Key design rules:
 * **npm ≥ 10** (or pnpm/yarn — the lockfile is npm's)
 * A **Hugging Face account + access token** with the *Inference Providers* permission
   (free tier available) for real AI replies — see [§9](#9-hugging-face-setup)
-* Nothing else: the database is SQLite and is created automatically.
+* Nothing else: locally the database is an embedded Postgres (PGlite), created automatically.
 
 ## 7. Installation & running locally
 
@@ -238,7 +238,7 @@ npm run check:secrets  # scan tracked files + the built bundle for leaked creden
 npm run verify         # secrets scan + tests + production build + smoke test
 npm run build          # production client build → ./dist
 npm start              # production server: serves ./dist + the API on :8787
-npm run db:reset       # delete the local SQLite database
+npm run db:reset       # delete the local PGlite database (never touches DATABASE_URL)
 npm run icons          # regenerate the icon set (needs `npm i --no-save sharp`)
 ```
 
@@ -280,7 +280,16 @@ Everything lives in `.env` (git-ignored). `.env.example` documents every key; th
 | `HF_TEMPERATURE` / `HF_TOP_P` / `HF_MAX_TOKENS` | `0.85` / `0.95` / `400` | Sampling |
 | `HF_TIMEOUT_MS` / `HF_IDLE_TIMEOUT_MS` | `45000` / `20000` | Whole-reply and between-chunks timeouts |
 | `AI_STREAMING` | `true` | Stream replies token by token |
-| `DATABASE_PATH` | `./data/yaar.sqlite` | SQLite file (`:memory:` for ephemeral runs) |
+| `AI_PROVIDER` | `huggingface` | `huggingface`, `bazaarlink` or `openai-compatible` |
+| `BAZAARLINK_API_KEY` | — | **Secret.** Required when `AI_PROVIDER=bazaarlink` |
+| `BAZAARLINK_BASE_URL` / `BAZAARLINK_MODEL` | `https://api.bazaarlink.ai/v1` / `deepseek-v4-flash` | BazaarLink endpoint + model (OpenAI-compatible) |
+| `DATABASE_URL` | — | **Secret.** Postgres connection string (Supabase). Empty → embedded PGlite |
+| `DATABASE_PATH` | `./data/pglite` | Local PGlite directory (`:memory:` for ephemeral runs) |
+| `SUPABASE_URL` / `SUPABASE_PUBLISHABLE_KEY` | — | Enables Supabase Auth (`SUPABASE_ANON_KEY` accepted) |
+| `SUPABASE_SECRET_KEY` | — | **Secret.** Only used to delete the auth account |
+| `SUPABASE_JWT_SECRET` | — | Optional legacy HS256 secret for offline token checks |
+| `AUTH_REQUIRED` / `ALLOW_ANONYMOUS` | `false` / `true` | Login policy (see `docs/DEPLOY_VERCEL_SUPABASE.md`) |
+| `VITE_SUPABASE_URL` / `VITE_SUPABASE_PUBLISHABLE_KEY` | — | Build-time, public: shows the sign-in UI |
 | `DAILY_MESSAGE_LIMIT` | `20` | User messages per window |
 | `USAGE_WINDOW_HOURS` | `24` | Window length |
 | `REFUND_FAILED_MESSAGES` | `true` | Give the message back when the AI fails |
@@ -539,7 +548,8 @@ are never counted.
 * **Where it lives** — `server/services/usageService.js` + the `usage_limits` table. The window
   starts when the first message of a window is sent and expires 24 h later; the next message after
   that starts a fresh window automatically.
-* **Atomic with the message** — `chatService.beginTurn()` runs inside a single SQLite transaction:
+* **Atomic with the message** — `chatService.beginTurn()` runs inside a single Postgres transaction
+  (with a row lock on the usage record, so parallel sends cannot overshoot the limit):
   `consumeMessage()` increments the counter, then the user message is inserted. If either step
   fails, nothing changes, so a crash can never charge a message that was not stored.
 * **Enforced before the AI is called** — message 21 is rejected with HTTP **429** and
@@ -586,7 +596,7 @@ are never counted.
   message, so it never consumes a message). It is seeded from either the history endpoint or the
   first send, whichever comes first, which keeps the ordering correct for deep links.
 * **Reload/restart safe** — the client re-fetches history on mount, the server serves it from
-  SQLite (WAL mode), and the usage window is stored server-side.
+  Postgres, and the usage window is stored server-side.
 * **Privacy** — every read/write goes through `getOwnedConversation(...)`/user-scoped queries, so
   another user can never read your chat (verified by tests: “history is paginated and never leaks
   another session”). There is no public feed.
@@ -596,8 +606,9 @@ are never counted.
 
 ## 13. Database schema
 
-SQLite (file `data/yaar.sqlite`, WAL mode, foreign keys on). Full DDL:
-`server/db/schema.sql`.
+PostgreSQL — Supabase in production (`DATABASE_URL`), embedded PGlite locally (`data/pglite`).
+Full DDL: `server/db/schema.sql` (applied automatically; RLS is enabled with no policies so the
+tables are invisible to Supabase's public Data API).
 
 ```
 users                   conversations            messages                    usage_limits
@@ -742,6 +753,9 @@ network-enabled machine to confirm the real Hugging Face path.
 
 ## 18. Production build & deployment
 
+> **Vercel + Supabase:** see [`docs/DEPLOY_VERCEL_SUPABASE.md`](docs/DEPLOY_VERCEL_SUPABASE.md) for the
+> serverless setup (`api/index.js` + `vercel.json`) and the exact environment variables.
+
 ```bash
 npm run build      # → ./dist (client)
 npm start          # serves ./dist + the API on PORT, NODE_ENV=production
@@ -754,9 +768,9 @@ Production checklist:
 2. Put the app behind HTTPS (required for `secure` cookies and for the Play Store build).
 3. Persist `DATABASE_PATH` on a volume (`./data` by default) and back it up — it holds the users,
    conversations and usage records.
-4. Run one process (SQLite + in-memory rate limiting assume a single instance). For horizontal
-   scaling, move rate limiting to Redis and the database to Postgres — both are isolated behind
-   `middleware/rateLimit.js` and `db/repositories/*`.
+4. Set `DATABASE_URL` to a Postgres database (Supabase) so data lives outside the process. Rate
+   limiting is still in-memory per instance; move it to Redis for strict limits across many
+   instances (isolated behind `middleware/rateLimit.js`).
 5. Ship the built client and the server together: `server/app.js` serves `dist/` with an SPA
    fallback and long-lived cache headers for hashed assets.
 
@@ -845,13 +859,11 @@ npx cap open android
 | Replies take too long | Raise `HF_TIMEOUT_MS` / `HF_IDLE_TIMEOUT_MS`, or switch to a smaller model. |
 | The AI repeats the same reply for different messages | A stand-in endpoint is answering. Check `/api/health`: if `demo` is `true` the bundled canned stand-in is configured, if `local` is `true` the endpoint is machine-local. Set `AI_PROVIDER=huggingface` + `HUGGINGFACE_API_KEY`, restart, and confirm with `npm run inspect:request -- "test message"`. |
 | “Slow down a little 😅” | The per-minute rate limit was hit; wait a few seconds (product limit is separate). |
-| Limit reached but it should have reset | The window is rolling (first message + 24 h), not midnight-based. Settings shows the exact reset time. For local testing: `POST /api/chat/dev/reset-usage` (dev only) or delete `data/yaar.sqlite`. |
+| Limit reached but it should have reset | The window is rolling (first message + 24 h), not midnight-based. Settings shows the exact reset time. For local testing: `POST /api/chat/dev/reset-usage` (dev only) or run `npm run db:reset`. |
 | Counter looks wrong after clearing site data | The device id was regenerated, so a new anonymous user started. Expected, and how anonymity works before real login. |
 | `EADDRINUSE` on start | Another process owns the port: `PORT=8788 npm start`. |
 | Client shows the “API is running” page | The client has not been built. Use `npm run dev` (Vite) or `npm run build`. |
 | Vite/API disagreement in dev | `npm run dev` proxies `/api`; if you changed `PORT`, restart `npm run dev` so the proxy target follows. |
-| `better-sqlite3` install failure | Needs a Node version with matching prebuilds (Node 20/22). Reinstall with `npm rebuild better-sqlite3`. |
-| `npm install` fails in `node-gyp` with `ECONNRESET` while fetching Node headers | The sandbox has no access to nodejs.org. `better-sqlite3` ships prebuilt binaries inside the npm tarball, so `npm ci --ignore-scripts` installs everything and the prebuild is used automatically. |
 | Keyboard covers the composer (iOS) | Ensure the iOS 15.4+ viewport behaviour is present (`interactive-widget` + `useVisualViewport`); in the Capacitor app set `Keyboard.resize: "body"` (already configured). |
 | Tests fail with “Cannot find module” | Run from the repository root (`npm run test`), and make sure `npm install` completed. |
 
@@ -860,7 +872,7 @@ npx cap open android
 Implemented and tested; the remaining work is operational rather than code:
 
 1. **Real Hugging Face token** in production, and a decision on the paid tier for expected volume.
-2. **Deploy the API over HTTPS** on a persistent host with a volume for `data/yaar.sqlite`, then set
+2. **Deploy the API over HTTPS** (e.g. Vercel + Supabase Postgres via `DATABASE_URL`), then set
    `VITE_API_BASE_URL` and rebuild the client.
 3. **Android packaging**: `npx cap add android`, icons/splash from `client/public/icons/`, signed
    AAB, `versionCode`/`versionName` bump. (Config is ready — see §19.)

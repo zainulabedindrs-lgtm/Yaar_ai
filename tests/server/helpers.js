@@ -18,7 +18,18 @@ export function useTestEnv(overrides = {}) {
     NODE_ENV: 'test',
     PORT: '0',
     HOST: '127.0.0.1',
-    DATABASE_PATH: path.join(tmpDir, 'test.sqlite'),
+    DATABASE_PATH: ':memory:',
+    // Set TEST_DATABASE_URL to run the suite against a real Postgres (throwaway DB!).
+    DATABASE_URL: process.env.TEST_DATABASE_URL || '',
+    AUTH_REQUIRED: 'false',
+    ALLOW_ANONYMOUS: 'true',
+    SUPABASE_URL: '',
+    SUPABASE_PUBLISHABLE_KEY: '',
+    SUPABASE_ANON_KEY: '',
+    SUPABASE_SECRET_KEY: '',
+    SUPABASE_JWT_SECRET: '',
+    VITE_SUPABASE_URL: '',
+    VITE_SUPABASE_PUBLISHABLE_KEY: '',
     SESSION_SECRET: 'test-secret-not-used-anywhere-real',
     AI_PROVIDER: 'openai-compatible',
     OPENAI_COMPATIBLE_BASE_URL: 'http://127.0.0.1:1/v1',
@@ -59,7 +70,7 @@ export async function loadServer() {
     createApp,
     initDatabase: database.initDatabase,
     closeDatabase: database.closeDatabase,
-    getDb: database.getDb,
+    query: database.query,
     chatService,
     usageService,
     messagesRepo,
@@ -74,7 +85,7 @@ export async function loadServer() {
  */
 export async function startTestServer() {
   const { createApp, initDatabase } = await loadServer();
-  initDatabase();
+  await initDatabase();
   const app = createApp({ clientDistPath: null });
 
   const server = await new Promise((resolve) => {

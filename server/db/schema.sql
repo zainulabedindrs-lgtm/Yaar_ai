@@ -1,42 +1,48 @@
 -- ===========================================================================
--- Yaar — database schema (SQLite)
+-- Yaar — database schema (PostgreSQL: Supabase in production, PGlite locally)
+--
+-- Applied automatically on server start (every statement is idempotent). You
+-- can also paste it into the Supabase SQL editor to create the tables up front.
 --
 -- Design notes
---  * `users` rows are anonymous sessions today. The `auth_provider` /
---    `auth_subject` columns are already in place so that real authentication
---    (Google / phone / email) can be added later without a migration of the
---    other tables: only `users` gains values.
+--  * `users.id` is either an anonymous device/session id, or `sb_<uuid>` for a
+--    Supabase-authenticated account (`auth_provider = 'supabase'`,
+--    `auth_subject` = the Supabase user id taken from the VERIFIED JWT).
 --  * `usage_limits` is the server-side source of truth for the 20 messages /
---    24 hours rule. One row per user. Counters are only written after a user
---    message has been accepted, and the window rolls forward automatically
---    once `window_expires_at` has passed.
---  * Times are stored as `INTEGER` epoch milliseconds — the server clock is
---    authoritative, client clocks are never trusted.
+--    24 hours rule. One row per user.
+--  * Times are BIGINT epoch milliseconds — the server clock is authoritative.
+--  * Row Level Security is ENABLED with NO policies: the tables are invisible
+--    to Supabase's public Data API (anon / publishable key). Only the server,
+--    connecting through DATABASE_URL as the database owner, can read them.
 -- ===========================================================================
 
 CREATE TABLE IF NOT EXISTS users (
-  id                TEXT PRIMARY KEY,             -- opaque session/device id
-  display_name      TEXT,                         -- optional, user supplied
+  id                TEXT PRIMARY KEY,
+  display_name      TEXT,
   auth_provider     TEXT NOT NULL DEFAULT 'anonymous',
-  auth_subject      TEXT,                         -- reserved for real auth later
-  created_at        INTEGER NOT NULL,
-  last_seen_at      INTEGER NOT NULL
+  auth_subject      TEXT,
+  email             TEXT,
+  created_at        BIGINT NOT NULL,
+  last_seen_at      BIGINT NOT NULL
 );
+
+ALTER TABLE users ADD COLUMN IF NOT EXISTS email TEXT;
 
 CREATE INDEX IF NOT EXISTS idx_users_last_seen ON users (last_seen_at);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_auth_subject
+  ON users (auth_provider, auth_subject) WHERE auth_subject IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS conversations (
-  id            TEXT PRIMARY KEY,
-  user_id       TEXT NOT NULL REFERENCES users (id) ON DELETE CASCADE,
-  companion_id  TEXT NOT NULL,                    -- 'girlfriend' | 'boyfriend'
-  title         TEXT,                             -- optional label for the UI
-  created_at    INTEGER NOT NULL,
-  updated_at    INTEGER NOT NULL,
-  last_message_at INTEGER,
-  is_archived   INTEGER NOT NULL DEFAULT 0
+  id              TEXT PRIMARY KEY,
+  user_id         TEXT NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+  companion_id    TEXT NOT NULL,
+  title           TEXT,
+  created_at      BIGINT NOT NULL,
+  updated_at      BIGINT NOT NULL,
+  last_message_at BIGINT,
+  is_archived     INTEGER NOT NULL DEFAULT 0
 );
 
--- One active conversation per user + companion.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_conversations_user_companion
   ON conversations (user_id, companion_id);
 CREATE INDEX IF NOT EXISTS idx_conversations_updated ON conversations (user_id, updated_at DESC);
@@ -47,29 +53,35 @@ CREATE TABLE IF NOT EXISTS messages (
   user_id         TEXT NOT NULL REFERENCES users (id) ON DELETE CASCADE,
   sender          TEXT NOT NULL CHECK (sender IN ('user', 'assistant', 'system')),
   content         TEXT NOT NULL,
-  status          TEXT NOT NULL DEFAULT 'sent',   -- sent | streaming | failed
+  status          TEXT NOT NULL DEFAULT 'sent',
   error_code      TEXT,
-  model           TEXT,                            -- which model produced an AI reply
+  model           TEXT,
   provider        TEXT,
-  created_at      INTEGER NOT NULL,
-  seq             INTEGER NOT NULL                 -- monotonic per conversation
+  created_at      BIGINT NOT NULL,
+  seq             INTEGER NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_messages_conversation_seq
+CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_conversation_seq
   ON messages (conversation_id, seq);
 CREATE INDEX IF NOT EXISTS idx_messages_user_created
   ON messages (user_id, created_at DESC);
 
 CREATE TABLE IF NOT EXISTS usage_limits (
   user_id            TEXT PRIMARY KEY REFERENCES users (id) ON DELETE CASCADE,
-  window_started_at  INTEGER NOT NULL,             -- when the current window began
-  window_expires_at  INTEGER NOT NULL,             -- when it rolls over
-  messages_used      INTEGER NOT NULL DEFAULT 0,    -- SUCCESSFUL user messages only
+  window_started_at  BIGINT NOT NULL,
+  window_expires_at  BIGINT NOT NULL,
+  messages_used      INTEGER NOT NULL DEFAULT 0,
   lifetime_messages  INTEGER NOT NULL DEFAULT 0,
-  updated_at         INTEGER NOT NULL
+  updated_at         BIGINT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS schema_meta (
   key    TEXT PRIMARY KEY,
   value  TEXT NOT NULL
 );
+
+ALTER TABLE users         ENABLE ROW LEVEL SECURITY;
+ALTER TABLE conversations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE messages      ENABLE ROW LEVEL SECURITY;
+ALTER TABLE usage_limits  ENABLE ROW LEVEL SECURITY;
+ALTER TABLE schema_meta   ENABLE ROW LEVEL SECURITY;

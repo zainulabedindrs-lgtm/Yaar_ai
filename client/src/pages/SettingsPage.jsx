@@ -11,6 +11,7 @@ import UsageMeter from '../components/UsageMeter.jsx';
 import { ChevronRightIcon, TrashIcon } from '../components/icons.jsx';
 import { yaarApi } from '../api/yaarApi.js';
 import { ROUTES } from '../config/appConfig.js';
+import { useAuth } from '../hooks/useAuth.jsx';
 import { useSession } from '../hooks/useSession.jsx';
 import { formatDuration } from '../utils/format.js';
 import { readStorage } from '../utils/storage.js';
@@ -24,6 +25,7 @@ import { readStorage } from '../utils/storage.js';
  */
 export function SettingsPage() {
   const navigate = useNavigate();
+  const auth = useAuth();
   const {
     status,
     error,
@@ -90,6 +92,8 @@ export function SettingsPage() {
     setActionError(null);
     try {
       await deleteAccount();
+      // The server already removed the account; drop the local login too.
+      if (auth.user) await auth.signOut();
       setDialog(null);
       navigate(ROUTES.home, { replace: true });
       window.location.reload();
@@ -213,6 +217,49 @@ export function SettingsPage() {
         </section>
 
         {/* ---------------------------------------------------------------- */}
+        {auth.enabled ? (
+          <section className="section">
+            <h2 className="section__title">Account</h2>
+            <div className="section__body">
+              <div className="setting-row">
+                <div className="setting-row__body">
+                  <div className="setting-row__label">
+                    {auth.user ? 'Signed in' : 'Not signed in'}
+                  </div>
+                  <div className="setting-row__value">
+                    {auth.user
+                      ? auth.user.email
+                      : 'Create an account to keep your chats on every device.'}
+                  </div>
+                </div>
+                <div className="setting-row__control">
+                  {auth.user ? (
+                    <button
+                      type="button"
+                      className="button button--sm button--ghost"
+                      onClick={async () => {
+                        await auth.signOut();
+                        navigate(ROUTES.auth, { replace: true });
+                      }}
+                    >
+                      Log out
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className="button button--sm button--primary"
+                      onClick={() => navigate(ROUTES.auth)}
+                    >
+                      Log in / Sign up
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          </section>
+        ) : null}
+
+        {/* ---------------------------------------------------------------- */}
         <section className="section">
           <h2 className="section__title">Privacy &amp; data</h2>
           <div className="section__body">
@@ -220,7 +267,7 @@ export function SettingsPage() {
               <div className="setting-row__body">
                 <div className="setting-row__label">Your session</div>
                 <div className="setting-row__value">
-                  Anonymous ID {user?.ref ?? '—'} · created{' '}
+                  {user?.isAnonymous === false ? 'Account' : 'Anonymous'} ID {user?.ref ?? '—'} · created{' '}
                   {user?.createdAt ? new Date(user.createdAt).toLocaleDateString() : '—'}
                 </div>
               </div>
@@ -262,7 +309,9 @@ export function SettingsPage() {
               <div className="setting-row__body">
                 <div className="setting-row__label">Delete all my data</div>
                 <div className="setting-row__value">
-                  Removes every message, conversation and usage record for this session.
+                  {user?.isAnonymous === false
+                    ? 'Removes your account and every message, conversation and usage record.'
+                    : 'Removes every message, conversation and usage record for this session.'}
                 </div>
               </div>
               <div className="setting-row__control">

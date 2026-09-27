@@ -7,7 +7,7 @@ import react from '@vitejs/plugin-react';
  * Client unit tests run in jsdom.
  *
  * Server tests use Node's built-in test runner instead (`npm run test:server`)
- * because they need a real SQLite file, a real HTTP server and the mock AI
+ * because they need a real (PGlite) database, a real HTTP server and the mock AI
  * provider.
  *
  * The aliases mirror `vite.config.js` so components resolve `@shared/*` the same

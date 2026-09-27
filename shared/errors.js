@@ -21,6 +21,7 @@ export const ERROR_CODES = {
   NOT_FOUND: 'not_found',
   SESSION_EXPIRED: 'session_expired',
   CANCELLED: 'cancelled',
+  UNAUTHORIZED: 'unauthorized',
 };
 
 /**
@@ -39,7 +40,7 @@ export const ERROR_MESSAGES = {
   [ERROR_CODES.AI_TIMEOUT]: 'That took too long on my side. Send it again and I will answer properly?',
   [ERROR_CODES.AI_EMPTY]: "I lost my words for a second there. Can you send that again?",
   [ERROR_CODES.AI_NOT_CONFIGURED]:
-    'Yaar is not connected to an AI yet. Add your Hugging Face token to the server .env file.',
+    'Yaar is not connected to an AI yet. Add the AI provider API key to the server environment.',
   [ERROR_CODES.NETWORK]: "You look offline. Check your connection and try again?",
   [ERROR_CODES.SERVER]: 'Something went wrong on my side. Please try again in a moment.',
   [ERROR_CODES.UNKNOWN_COMPANION]: 'That companion does not exist. Pick one from the home screen.',
@@ -47,6 +48,7 @@ export const ERROR_MESSAGES = {
   [ERROR_CODES.NOT_FOUND]: 'Not found.',
   [ERROR_CODES.SESSION_EXPIRED]: 'Your session expired. Reconnecting…',
   [ERROR_CODES.CANCELLED]: 'Stopped.',
+  [ERROR_CODES.UNAUTHORIZED]: 'Please sign in to continue.',
 };
 
 /** Maximum length of a single user message. */

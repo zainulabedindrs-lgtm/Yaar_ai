@@ -49,11 +49,45 @@ const isProduction = NODE_ENV === 'production';
 
 const DEFAULT_SESSION_SECRET = 'yaar-insecure-development-secret-change-me';
 
+export const BAZAARLINK_DEFAULT_BASE_URL = 'https://api.bazaarlink.ai/v1';
+export const BAZAARLINK_DEFAULT_MODEL = 'deepseek-v4-flash';
+
+/** True inside a Vercel serverless function (read-only filesystem except /tmp). */
+const isVercel = Boolean(env.VERCEL);
+
 function resolveDatabasePath() {
-  const raw = str('DATABASE_PATH', './data/yaar.sqlite');
-  if (raw === ':memory:') return ':memory:';
+  const fallback = isVercel ? '/tmp/yaar-pglite' : './data/pglite';
+  const raw = str('DATABASE_PATH', fallback);
+  if (raw === ':memory:' || raw.startsWith('memory://')) return ':memory:';
   return path.isAbsolute(raw) ? raw : path.resolve(ROOT_DIR, raw);
 }
+
+/**
+ * TLS for Postgres. Supabase requires it; a local Postgres usually has none.
+ * DATABASE_SSL=true|false overrides the guess.
+ */
+function resolveDatabaseSsl(url) {
+  const raw = env.DATABASE_SSL;
+  if (raw !== undefined && raw !== '') return bool('DATABASE_SSL', true);
+  if (!url) return false;
+  try {
+    const { hostname } = new URL(url);
+    return !['localhost', '127.0.0.1', '::1'].includes(hostname);
+  } catch {
+    return true;
+  }
+}
+
+/** Supabase URL without a trailing slash (server + client share the project). */
+const supabaseUrl = (str('SUPABASE_URL') || str('VITE_SUPABASE_URL')).replace(/\/+$/, '');
+/** The PUBLIC key: new `sb_publishable_…` key, or the legacy anon JWT. */
+const supabasePublishableKey =
+  str('SUPABASE_PUBLISHABLE_KEY') ||
+  str('SUPABASE_ANON_KEY') ||
+  str('VITE_SUPABASE_PUBLISHABLE_KEY') ||
+  str('VITE_SUPABASE_ANON_KEY');
+const authRequired = bool('AUTH_REQUIRED', false);
+const allowAnonymous = bool('ALLOW_ANONYMOUS', true);
 
 function parseModelList() {
   const primary = str('HF_MODEL', 'Qwen/Qwen3-8B');
@@ -79,7 +113,17 @@ function parseModelList() {
  * @returns {{ local: boolean, demo: boolean, host: string }}
  */
 function detectProviderKind() {
-  if (str('AI_PROVIDER', 'huggingface').toLowerCase() !== 'openai-compatible') {
+  const provider = str('AI_PROVIDER', 'huggingface').toLowerCase();
+  if (provider === 'bazaarlink') {
+    let host = '';
+    try {
+      host = new URL(str('BAZAARLINK_BASE_URL', BAZAARLINK_DEFAULT_BASE_URL)).hostname;
+    } catch {
+      host = '';
+    }
+    return { local: false, demo: false, host };
+  }
+  if (provider !== 'openai-compatible') {
     return { local: false, demo: false, host: '' };
   }
 
@@ -110,7 +154,8 @@ export const config = {
   server: {
     port: num('PORT', 8787),
     host: str('HOST', '0.0.0.0'),
-    trustProxy: bool('TRUST_PROXY', false),
+    /** Vercel always sits behind its proxy, so trust it there by default. */
+    trustProxy: bool('TRUST_PROXY', isVercel),
     /** CSP frame-ancestors. Defaults to * so previews / WebView shells work. */
     frameAncestors: str('FRAME_ANCESTORS', '*'),
     /** Absolute path of the built client (served in production). */
@@ -147,12 +192,45 @@ export const config = {
       baseUrl: str('OPENAI_COMPATIBLE_BASE_URL', 'http://127.0.0.1:11434/v1').replace(/\/+$/, ''),
       model: str('OPENAI_COMPATIBLE_MODEL', 'qwen2.5:7b-instruct'),
     },
+    bazaarlink: {
+      /** Server-only credential — never bundled into the client. */
+      apiKey: str('BAZAARLINK_API_KEY'),
+      baseUrl: str('BAZAARLINK_BASE_URL', BAZAARLINK_DEFAULT_BASE_URL).replace(/\/+$/, ''),
+      model: str('BAZAARLINK_MODEL', BAZAARLINK_DEFAULT_MODEL),
+      /** Optional comma-separated fallbacks tried when the primary model fails. */
+      fallbackModels: str('BAZAARLINK_MODEL_FALLBACKS')
+        .split(',')
+        .map((model) => model.trim())
+        .filter(Boolean),
+    },
+  },
+
+  auth: {
+    /** Supabase Auth is active when the project URL + public key are set. */
+    enabled: Boolean(supabaseUrl && supabasePublishableKey),
+    supabaseUrl,
+    publishableKey: supabasePublishableKey,
+    /** Server-only. Used ONLY to delete the auth account on "Delete my account". */
+    secretKey: str('SUPABASE_SECRET_KEY') || str('SUPABASE_SERVICE_ROLE_KEY'),
+    /** Optional legacy HS256 JWT secret — lets the server verify tokens offline. */
+    jwtSecret: str('SUPABASE_JWT_SECRET'),
+    /** Every user-data route needs a verified Supabase login. */
+    required: authRequired || !allowAnonymous,
+    /** Anonymous (device-id) sessions are accepted when no token is sent. */
+    allowAnonymous: allowAnonymous && !authRequired,
   },
 
   database: {
+    /** Postgres connection string (Supabase). Empty → embedded PGlite. */
+    url: str('DATABASE_URL') || str('POSTGRES_URL'),
+    ssl: resolveDatabaseSsl(str('DATABASE_URL') || str('POSTGRES_URL')),
+    /** Keep tiny on serverless: each function instance holds its own pool. */
+    poolMax: Math.max(1, Math.trunc(num('DATABASE_POOL_MAX', isVercel ? 1 : 10))),
+    /** PGlite data directory (local fallback only). ':memory:' for tests. */
     path: resolveDatabasePath(),
-    busyTimeoutMs: num('DATABASE_BUSY_TIMEOUT_MS', 5_000),
   },
+
+  isVercel,
 
   usage: {
     /** Exactly 20 user messages per rolling window by default. */
@@ -178,6 +256,9 @@ export const config = {
 
 /** Convenience flag used by the health endpoint and the UI banner. */
 export function isAiConfigured() {
+  if (config.ai.provider === 'bazaarlink') {
+    return Boolean(config.ai.bazaarlink.apiKey && config.ai.bazaarlink.baseUrl);
+  }
   if (config.ai.provider === 'openai-compatible') {
     return Boolean(config.ai.openaiCompatible.baseUrl);
   }
@@ -194,10 +275,26 @@ export function configWarnings() {
   const warnings = [];
 
   if (!isAiConfigured()) {
+    const hints = {
+      huggingface:
+        'HUGGINGFACE_API_KEY is not set — chat replies will fail with a friendly "AI not connected" message. Add it to .env.',
+      bazaarlink:
+        'BAZAARLINK_API_KEY is not set — chat replies will fail with a friendly "AI not connected" message.',
+    };
     warnings.push(
-      config.ai.provider === 'huggingface'
-        ? 'HUGGINGFACE_API_KEY is not set — chat replies will fail with a friendly "AI not connected" message. Add it to .env.'
-        : 'OPENAI_COMPATIBLE_BASE_URL is not set — chat replies will fail.',
+      hints[config.ai.provider] ?? 'OPENAI_COMPATIBLE_BASE_URL is not set — chat replies will fail.',
+    );
+  }
+
+  if (config.auth.required && !config.auth.enabled) {
+    warnings.push(
+      'AUTH_REQUIRED=true (or ALLOW_ANONYMOUS=false) but SUPABASE_URL / SUPABASE_PUBLISHABLE_KEY are not set — nobody can sign in.',
+    );
+  }
+
+  if (config.isVercel && !config.database.url) {
+    warnings.push(
+      'Running on Vercel without DATABASE_URL: data lives in an ephemeral /tmp PGlite database and WILL be lost. Set DATABASE_URL to your Supabase Postgres connection string.',
     );
   }
 

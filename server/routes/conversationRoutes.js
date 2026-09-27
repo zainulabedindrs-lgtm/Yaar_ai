@@ -26,16 +26,16 @@ export function registerConversationRoutes(router) {
       const companionId = requireCompanionId(req.params.companionId);
       const query = parseOrThrow(messagesQuerySchema, req.query);
 
-      const conversation = conversationsRepo.getOrCreateConversation(req.userId, companionId);
-      chatService.ensureGreeting(conversation, req.userId, companionId);
+      const conversation = await conversationsRepo.getOrCreateConversation(req.userId, companionId);
+      await chatService.ensureGreeting(conversation, req.userId, companionId);
 
-      const rows = messagesRepo.listMessages(conversation.id, {
+      const rows = await messagesRepo.listMessages(conversation.id, {
         limit: query.limit ?? 200,
         beforeSeq: query.before ?? null,
       });
 
       const oldest = rows[0]?.seq ?? null;
-      const total = messagesRepo.countMessages(conversation.id);
+      const total = await messagesRepo.countMessages(conversation.id);
 
       res.json({
         conversation: {
@@ -44,7 +44,7 @@ export function registerConversationRoutes(router) {
         },
         messages: rows.map(chatService.serializeMessage),
         hasMore: oldest !== null && oldest > 1,
-        usage: chatService.getUsage(req.userId),
+        usage: await chatService.getUsage(req.userId),
       });
     }),
   );
@@ -53,13 +53,13 @@ export function registerConversationRoutes(router) {
     '/conversations/:companionId/messages',
     asyncHandler(async (req, res) => {
       const companionId = requireCompanionId(req.params.companionId);
-      const conversation = conversationsRepo.getOrCreateConversation(req.userId, companionId);
+      const conversation = await conversationsRepo.getOrCreateConversation(req.userId, companionId);
 
-      const removed = messagesRepo.deleteMessagesForConversation(conversation.id);
+      const removed = await messagesRepo.deleteMessagesForConversation(conversation.id);
       // Re-seed the opening line so the cleared chat is not a blank screen.
-      chatService.ensureGreeting(conversation, req.userId, companionId);
+      await chatService.ensureGreeting(conversation, req.userId, companionId);
 
-      const rows = messagesRepo.listMessages(conversation.id, { limit: 50 });
+      const rows = await messagesRepo.listMessages(conversation.id, { limit: 50 });
 
       res.json({
         cleared: removed,
