@@ -30,6 +30,11 @@ const TOKEN_PATTERNS = [
   { name: 'OpenAI-style key', regex: /sk-[A-Za-z0-9]{20,}/g },
   { name: 'AWS access key id', regex: /AKIA[0-9A-Z]{16}/g },
   { name: 'Google API key', regex: /AIza[0-9A-Za-z\-_]{30,}/g },
+  { name: 'Supabase secret key', regex: /sb_secret_[A-Za-z0-9_-]{20,}/g },
+  {
+    name: 'Postgres URL with a password',
+    regex: /postgres(?:ql)?:\/\/[^:\s/'"`]+:(?!\[|<|your|password@|PASSWORD@)[^@\s'"`]{8,}@/g,
+  },
 ];
 
 /** Keys in .env files that must be empty/placeholder in the committed example. */
@@ -37,7 +42,12 @@ const SECRET_KEYS = [
   'HUGGINGFACE_API_KEY',
   'HF_API_KEY',
   'OPENAI_COMPATIBLE_API_KEY',
+  'BAZAARLINK_API_KEY',
   'SESSION_SECRET',
+  'SUPABASE_SECRET_KEY',
+  'SUPABASE_SERVICE_ROLE_KEY',
+  'SUPABASE_JWT_SECRET',
+  'DATABASE_URL',
 ];
 
 /** Placeholder values that are fine to commit. */
@@ -57,6 +67,11 @@ const SERVER_ONLY_VARS = [
   'OPENAI_COMPATIBLE_API_KEY',
   'SESSION_SECRET',
   'DATABASE_PATH',
+  'DATABASE_URL',
+  'BAZAARLINK_API_KEY',
+  'SUPABASE_SECRET_KEY',
+  'SUPABASE_SERVICE_ROLE_KEY',
+  'SUPABASE_JWT_SECRET',
 ];
 
 const problems = [];
@@ -184,6 +199,10 @@ for (const file of walkClient()) {
   }
   if (/\bHUGGINGFACE_API_KEY\b|\bHF_API_KEY\b|\bSESSION_SECRET\b/.test(text)) {
     report(`${relative}: references a secret variable name in client code`);
+  }
+  // A VITE_-prefixed secret would be inlined into every visitor's browser.
+  if (/import\.meta\.env\.VITE_\w*(SECRET|SERVICE_ROLE|API_KEY|DATABASE)\w*/.test(text)) {
+    report(`${relative}: exposes a secret through a VITE_ variable`);
   }
 }
 ok(`checked ${clientScanned} client source files for server-only env usage`);

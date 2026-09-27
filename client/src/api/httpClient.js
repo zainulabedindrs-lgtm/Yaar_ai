@@ -13,6 +13,7 @@ import { ERROR_CODES, ERROR_MESSAGES } from '@shared/errors';
 
 import { API_BASE_URL, REQUEST_TIMEOUT_MS } from '../config/appConfig.js';
 import { getDeviceId } from '../utils/device.js';
+import { getAccessToken } from './authToken.js';
 
 export class ApiClientError extends Error {
   /**
@@ -37,9 +38,12 @@ export function apiUrl(path) {
 
 /** Headers common to every request. */
 export function baseHeaders() {
+  const token = getAccessToken();
   return {
     accept: 'application/json',
     [headersDeviceKey()]: getDeviceId(),
+    // Signed in → the server derives the user from this verified token.
+    ...(token ? { authorization: `Bearer ${token}` } : {}),
   };
 }
 

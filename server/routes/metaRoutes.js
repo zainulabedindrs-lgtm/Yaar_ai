@@ -3,12 +3,13 @@
  *
  *   GET /api/health          → liveness, AI status, database counts
  *   GET /api/companions      → public companion metadata (no prompts!)
- *   GET /api/usage           → current usage window for this user
+ *   GET /api/auth/config     → public Supabase Auth settings (no secrets)
  */
 
 import { getCompanionPublicList } from '../../shared/companions.js';
 import { appMetadata } from '../appMetadata.js';
 import { databaseStats } from '../db/database.js';
+import { publicAuthConfig } from '../services/authService.js';
 import * as chatService from '../services/chatService.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 
@@ -21,7 +22,7 @@ export function registerMetaRoutes(router) {
       let database = null;
       let healthy = true;
       try {
-        database = databaseStats();
+        database = await databaseStats();
       } catch {
         healthy = false;
       }
@@ -41,6 +42,7 @@ export function registerMetaRoutes(router) {
           host: ai.host,
         },
         database,
+        auth: { enabled: publicAuthConfig().enabled, required: publicAuthConfig().required },
         app: appMetadata(),
       });
     }),
@@ -53,10 +55,11 @@ export function registerMetaRoutes(router) {
     }),
   );
 
+  // Public, non-secret settings the client needs to start Supabase Auth.
   router.get(
-    '/usage',
-    asyncHandler(async (req, res) => {
-      res.json({ usage: chatService.getUsage(req.userId) });
+    '/auth/config',
+    asyncHandler(async (_req, res) => {
+      res.json({ auth: publicAuthConfig() });
     }),
   );
 }

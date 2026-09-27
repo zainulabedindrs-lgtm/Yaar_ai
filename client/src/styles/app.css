@@ -1211,3 +1211,62 @@
     border-radius: var(--radius-lg);
   }
 }
+
+/* ---------------------------------------------------------------------------
+   Auth (sign up / log in)
+   ------------------------------------------------------------------------- */
+.auth {
+  max-width: var(--sheet-max);
+  margin-inline: auto;
+}
+
+.auth__brand {
+  display: flex;
+  justify-content: center;
+  margin-bottom: var(--space-4);
+}
+
+.auth__tabs {
+  display: flex;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+}
+
+.auth__form,
+.auth__actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.auth__field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-soft);
+}
+
+.auth__field input {
+  min-height: 48px;
+  padding: 0 var(--space-4);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-soft);
+  color: var(--text);
+  font: inherit;
+  font-size: 16px; /* ≥16px stops iOS from zooming into the field */
+  font-weight: 400;
+}
+
+.auth__field input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.auth__skip {
+  margin-top: var(--space-5);
+  text-align: center;
+  color: var(--text-muted);
+}

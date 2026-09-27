@@ -9,7 +9,7 @@
  *    (by default) AI failures that produced no text are NOT counted.
  *  - The window starts when the first message of that window is sent and
  *    expires 24 hours later; the counter then resets automatically.
- *  - Everything is stored server-side in SQLite keyed by the user id, so
+ *  - Everything is stored server-side in Postgres keyed by the user id, so
  *    refreshing the page, clearing localStorage or switching browsers cannot
  *    reset it (the identity lives in a signed cookie / device header).
  */
@@ -47,15 +47,15 @@ export function limit() {
  * @param {number} [now]
  * @returns {UsageState}
  */
-export function getUsageState(userId, now = Date.now()) {
+export async function getUsageState(userId, now = Date.now()) {
   // Usage rows reference `users`, so make sure the user exists first.
-  usersRepo.ensureUser(userId, now);
-  const row = usageRepo.ensureUsageRow(userId, now, windowMs());
+  if (!(await usersRepo.getUser(userId))) await usersRepo.ensureUser(userId, now);
+  const row = await usageRepo.ensureUsageRow(userId, now, windowMs());
 
   // The window has passed → the counter is logically already zero. We persist
   // the roll so that concurrent requests stay consistent.
   if (now >= row.window_expires_at || row.messages_used > limit()) {
-    const rolled = usageRepo.rollWindow(userId, now, windowMs());
+    const rolled = await usageRepo.rollWindow(userId, now, windowMs());
     return toState(rolled, now);
   }
 
@@ -75,21 +75,23 @@ export function getUsageState(userId, now = Date.now()) {
  * @returns {UsageState}
  * @throws {ApiError} 429 LIMIT_REACHED when the allowance is exhausted
  */
-export function consumeMessage(userId, now = Date.now(), options = {}) {
-  usersRepo.ensureUser(userId, now);
-  let row = usageRepo.ensureUsageRow(userId, now, windowMs());
+export async function consumeMessage(userId, now = Date.now(), options = {}) {
+  if (!(await usersRepo.getUser(userId))) await usersRepo.ensureUser(userId, now);
+  // Row lock: concurrent sends from the same user queue up here instead of
+  // both reading "19 used" and both being accepted.
+  let row = await usageRepo.ensureUsageRow(userId, now, windowMs(), { lock: true });
 
   if (now >= row.window_expires_at) {
-    row = usageRepo.rollWindow(userId, now, windowMs());
+    row = await usageRepo.rollWindow(userId, now, windowMs());
   } else if (options.alreadyReset) {
-    row = usageRepo.getUsageRow(userId) ?? row;
+    row = (await usageRepo.getUsageRow(userId)) ?? row;
   }
 
   if (row.messages_used >= limit()) {
     throw ApiError.limitReached(undefined, { usage: toState(row, now) });
   }
 
-  const updated = usageRepo.incrementUsage(userId, now);
+  const updated = await usageRepo.incrementUsage(userId, now);
   return toState(updated, now);
 }
 
@@ -98,15 +100,15 @@ export function consumeMessage(userId, now = Date.now(), options = {}) {
  * @param {string} userId
  * @returns {UsageState}
  */
-export function refundMessage(userId, now = Date.now()) {
+export async function refundMessage(userId, now = Date.now()) {
   if (!config.usage.refundFailedMessages) return getUsageState(userId, now);
-  const row = usageRepo.decrementUsage(userId, now);
+  const row = await usageRepo.decrementUsage(userId, now);
   return toState(row, now);
 }
 
 /** Development/testing only (exposed by a dev-only route). */
-export function resetUsage(userId, now = Date.now()) {
-  const row = usageRepo.resetUsage(userId, now, windowMs());
+export async function resetUsage(userId, now = Date.now()) {
+  const row = await usageRepo.resetUsage(userId, now, windowMs());
   return toState(row, now);
 }
 

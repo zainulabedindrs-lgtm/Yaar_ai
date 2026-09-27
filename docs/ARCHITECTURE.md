@@ -33,7 +33,7 @@ Rules that keep it navigable:
 ```
 POST /api/chat/:companionId/messages
   ├─ route: validate companion id, zod body, sanitise content
-  ├─ chatService.beginTurn  ────────────── one better-sqlite3 transaction ──┐
+  ├─ chatService.beginTurn  ────────────── one Postgres transaction ────────┐
   │     ├─ usersRepo.ensureUser (idempotent)                               │
   │     ├─ conversationsRepo.getOrCreateConversation                      │
   │     ├─ chatService.ensureGreeting (assistant, never counted)          │
@@ -96,8 +96,8 @@ message, so a user never reads a raw code, a provider payload or a stack trace.
   `?before=` pagination for older ones; the prompt builder trims to ~24 messages / ~9 000 characters.
 * **No polling.** Usage and history update from the SSE payloads; the only timer is a 30 s
   countdown tick that runs solely while the limit card is visible.
-* **Prepared statements + transactions** everywhere in the data layer; SQLite runs in WAL mode with
-  `synchronous = NORMAL`.
+* **Parameterised queries + transactions** everywhere in the data layer (Postgres via `pg`, or
+  embedded PGlite locally); write paths take row locks so concurrent requests stay consistent.
 
 ## Extending safely
 

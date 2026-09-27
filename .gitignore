@@ -73,3 +73,6 @@ ios/
 tmp/
 temp/
 *.tmp
+
+# Vercel CLI
+.vercel/

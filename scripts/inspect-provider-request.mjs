@@ -63,6 +63,7 @@ process.env.AI_PROVIDER = 'openai-compatible';
 process.env.OPENAI_COMPATIBLE_BASE_URL = `http://127.0.0.1:${recorder.address().port}/v1`;
 process.env.OPENAI_COMPATIBLE_MODEL = 'inspection-recorder';
 process.env.DATABASE_PATH = ':memory:';
+process.env.DATABASE_URL = ''; // never touch a real Postgres from this script
 process.env.SESSION_SECRET = process.env.SESSION_SECRET || 'inspection-only-secret';
 process.env.LOG_LEVEL = 'warn';
 
@@ -125,5 +126,5 @@ console.log('──────────────────────�
 
 await new Promise((resolve) => server.close(resolve));
 await new Promise((resolve) => recorder.close(resolve));
-closeDatabase();
+await closeDatabase();
 process.exit(allDifferent ? 0 : 1);

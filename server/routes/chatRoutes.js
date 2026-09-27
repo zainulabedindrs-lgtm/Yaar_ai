@@ -67,7 +67,7 @@ export function registerChatRoutes(router) {
       }
 
       // Step 1 — reserve the message (atomic: usage counter + insert).
-      const turn = chatService.beginTurn({
+      const turn = await chatService.beginTurn({
         userId: req.userId,
         companionId,
         content,
@@ -75,7 +75,7 @@ export function registerChatRoutes(router) {
       });
 
       const existingReply = turn.duplicate
-        ? chatService.findReplyAfter(turn.conversation.id, turn.userMessage.seq)
+        ? await chatService.findReplyAfter(turn.conversation.id, turn.userMessage.seq)
         : null;
 
       if (existingReply) {
@@ -115,16 +115,16 @@ export function registerChatRoutes(router) {
       const companionId = requireCompanionId(req.params.companionId);
       const wantsStream = (req.body?.stream ?? true) && config.ai.streaming;
 
-      const conversation = conversationsRepo.getOrCreateConversation(req.userId, companionId);
-      if (!chatService.isAwaitingReply(conversation.id)) {
+      const conversation = await conversationsRepo.getOrCreateConversation(req.userId, companionId);
+      if (!(await chatService.isAwaitingReply(conversation.id))) {
         throw ApiError.badRequest(
           ERROR_CODES.VALIDATION,
           'There is nothing to reply to right now.',
         );
       }
 
-      const userMessage = chatService.getLatestMessage(conversation.id);
-      const usage = chatService.getUsage(req.userId);
+      const userMessage = await chatService.getLatestMessage(conversation.id);
+      const usage = await chatService.getUsage(req.userId);
 
       if (!wantsStream) {
         try {
@@ -132,7 +132,7 @@ export function registerChatRoutes(router) {
             companionId,
             conversationId: conversation.id,
           });
-          const assistantMessage = chatService.saveAssistantReply({
+          const assistantMessage = await chatService.saveAssistantReply({
             userId: req.userId,
             conversation,
             content: reply.text,
@@ -143,13 +143,13 @@ export function registerChatRoutes(router) {
             conversation: chatService.serializeConversation(conversation),
             userMessage: chatService.serializeMessage(userMessage),
             assistantMessage: chatService.serializeMessage(assistantMessage),
-            usage: chatService.getUsage(req.userId),
+            usage: await chatService.getUsage(req.userId),
           });
         } catch (error) {
           const apiError = error instanceof ApiError ? error : ApiError.upstream();
           throw new ApiError(apiError.status, apiError.code, apiError.message, {
             ...(apiError.details || {}),
-            usage: chatService.getUsage(req.userId),
+            usage: await chatService.getUsage(req.userId),
           });
         }
         return;
@@ -176,7 +176,7 @@ export function registerChatRoutes(router) {
     '/dev/reset-usage',
     asyncHandler(async (req, res) => {
       if (config.isProduction) throw ApiError.notFound();
-      const usage = usageService.resetUsage(req.userId);
+      const usage = await usageService.resetUsage(req.userId);
       res.json({ usage: chatService.serializeUsage(usage) });
     }),
   );
@@ -245,7 +245,7 @@ async function streamReply({
     const content = (reply.text || text).trim();
     if (!content) throw ApiError.upstream(ERROR_CODES.AI_EMPTY);
 
-    const assistantMessage = chatService.saveAssistantReply({
+    const assistantMessage = await chatService.saveAssistantReply({
       userId,
       conversation,
       content,
@@ -255,7 +255,7 @@ async function streamReply({
 
     stream.send('done', {
       assistantMessage: chatService.serializeMessage(assistantMessage),
-      usage: chatService.getUsage(userId),
+      usage: await chatService.getUsage(userId),
       ms: Date.now() - startedAt,
     });
   } catch (error) {
@@ -267,20 +267,20 @@ async function streamReply({
     if (partial) {
       // The user already saw part of the reply — keep it so the history matches
       // the screen instead of deleting something they read.
-      const salvaged = chatService.saveAssistantReply({
+      const salvaged = await chatService.saveAssistantReply({
         userId,
         conversation,
         content: partial,
       });
       stream.send('done', {
         assistantMessage: chatService.serializeMessage(salvaged),
-        usage: chatService.getUsage(userId),
+        usage: await chatService.getUsage(userId),
         truncated: true,
         ms: Date.now() - startedAt,
       });
     } else {
-      const refunded = refundable ? chatService.refundTurn(userId) : null;
-      const nextUsage = refunded ?? chatService.getUsage(userId);
+      const refunded = refundable ? await chatService.refundTurn(userId) : null;
+      const nextUsage = refunded ?? (await chatService.getUsage(userId));
 
       if (cancelled && clientGone) {
         logger.info('chat stream cancelled', { companionId });

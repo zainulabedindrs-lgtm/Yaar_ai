@@ -24,6 +24,10 @@ function signature() {
     oaiBase: ai.openaiCompatible.baseUrl,
     oaiModel: ai.openaiCompatible.model,
     oaiKey: ai.openaiCompatible.apiKey ? 'set' : 'unset',
+    blBase: ai.bazaarlink.baseUrl,
+    blModel: ai.bazaarlink.model,
+    blFallbacks: ai.bazaarlink.fallbackModels,
+    blKey: ai.bazaarlink.apiKey ? 'set' : 'unset',
     temperature: ai.temperature,
     topP: ai.topP,
     maxTokens: ai.maxTokens,
@@ -49,6 +53,28 @@ export function getChatProvider() {
 /** @returns {OpenAiCompatibleChatClient} */
 export function createChatProvider() {
   const { ai } = config;
+
+  if (ai.provider === 'bazaarlink') {
+    // BazaarLink speaks the OpenAI Chat Completions API, so it is the OpenAI
+    // client pointed at a different base URL (the same thing the official
+    // `openai` SDK does with `baseURL`): POST {baseUrl}/chat/completions with
+    // `Authorization: Bearer <BAZAARLINK_API_KEY>`.
+    return new OpenAiCompatibleChatClient({
+      id: 'bazaarlink',
+      label: 'BazaarLink',
+      baseUrl: ai.bazaarlink.baseUrl,
+      apiKey: ai.bazaarlink.apiKey,
+      models: [ai.bazaarlink.model, ...ai.bazaarlink.fallbackModels].filter(
+        (model, index, all) => all.indexOf(model) === index,
+      ),
+      requiresKey: true,
+      temperature: ai.temperature,
+      topP: ai.topP,
+      maxTokens: ai.maxTokens,
+      timeoutMs: ai.timeoutMs,
+      idleTimeoutMs: ai.idleTimeoutMs,
+    });
+  }
 
   if (ai.provider === 'openai-compatible') {
     return new OpenAiCompatibleChatClient({

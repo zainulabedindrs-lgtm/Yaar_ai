@@ -5,7 +5,7 @@
  * been sent in the current window. Nothing here is ever derived from the client.
  */
 
-import { getDb } from '../database.js';
+import { query, queryOne } from '../database.js';
 
 /**
  * @typedef {Object} UsageRow
@@ -19,57 +19,54 @@ import { getDb } from '../database.js';
 
 /**
  * Reads the usage row, creating it (window starting now) when missing.
+ * With `{ lock: true }` the row stays locked until the surrounding transaction
+ * ends, so two concurrent sends can never both slip under the limit.
  * @param {string} userId
  * @param {number} now
  * @param {number} windowMs
- * @returns {UsageRow}
+ * @param {{ lock?: boolean }} [options]
+ * @returns {Promise<UsageRow>}
  */
-export function ensureUsageRow(userId, now, windowMs) {
-  const db = getDb();
-  db.prepare(
+export async function ensureUsageRow(userId, now, windowMs, { lock = false } = {}) {
+  await query(
     `INSERT INTO usage_limits
        (user_id, window_started_at, window_expires_at, messages_used, lifetime_messages, updated_at)
-     VALUES (@userId, @now, @expiresAt, 0, 0, @now)
+     VALUES ($1, $2, $3, 0, 0, $2)
      ON CONFLICT (user_id) DO NOTHING`,
-  ).run({ userId, now, expiresAt: now + windowMs });
-
-  return /** @type {UsageRow} */ (getUsageRow(userId));
+    [userId, now, now + windowMs],
+  );
+  return queryOne(`SELECT * FROM usage_limits WHERE user_id = $1${lock ? ' FOR UPDATE' : ''}`, [
+    userId,
+  ]);
 }
 
-/** @param {string} userId @returns {UsageRow | undefined} */
-export function getUsageRow(userId) {
-  return /** @type {UsageRow | undefined} */ (
-    getDb().prepare('SELECT * FROM usage_limits WHERE user_id = ?').get(userId)
-  );
+/** @param {string} userId @returns {Promise<UsageRow | undefined>} */
+export async function getUsageRow(userId) {
+  return queryOne('SELECT * FROM usage_limits WHERE user_id = $1', [userId]);
 }
 
 /** @param {string} userId @param {number} now @param {number} windowMs */
-export function rollWindow(userId, now, windowMs) {
-  getDb()
-    .prepare(
-      `UPDATE usage_limits
-          SET window_started_at = @now,
-              window_expires_at = @expiresAt,
-              messages_used = 0,
-              updated_at = @now
-        WHERE user_id = @userId`,
-    )
-    .run({ userId, now, expiresAt: now + windowMs });
-  return /** @type {UsageRow} */ (getUsageRow(userId));
+export async function rollWindow(userId, now, windowMs) {
+  return queryOne(
+    `UPDATE usage_limits
+        SET window_started_at = $2, window_expires_at = $3, messages_used = 0, updated_at = $2
+      WHERE user_id = $1
+      RETURNING *`,
+    [userId, now, now + windowMs],
+  );
 }
 
 /** @param {string} userId */
-export function incrementUsage(userId, now = Date.now()) {
-  getDb()
-    .prepare(
-      `UPDATE usage_limits
-          SET messages_used = messages_used + 1,
-              lifetime_messages = lifetime_messages + 1,
-              updated_at = ?
-        WHERE user_id = ?`,
-    )
-    .run(now, userId);
-  return /** @type {UsageRow} */ (getUsageRow(userId));
+export async function incrementUsage(userId, now = Date.now()) {
+  return queryOne(
+    `UPDATE usage_limits
+        SET messages_used = messages_used + 1,
+            lifetime_messages = lifetime_messages + 1,
+            updated_at = $2
+      WHERE user_id = $1
+      RETURNING *`,
+    [userId, now],
+  );
 }
 
 /**
@@ -77,22 +74,21 @@ export function incrementUsage(userId, now = Date.now()) {
  * Never drops below zero.
  * @param {string} userId
  */
-export function decrementUsage(userId, now = Date.now()) {
-  const db = getDb();
-  db.prepare(
+export async function decrementUsage(userId, now = Date.now()) {
+  return queryOne(
     `UPDATE usage_limits
-        SET messages_used = MAX(messages_used - 1, 0),
-            lifetime_messages = MAX(lifetime_messages - 1, 0),
-            updated_at = @now
-      WHERE user_id = @userId`,
-  ).run({ userId, now });
-  return /** @type {UsageRow} */ (getUsageRow(userId));
+        SET messages_used = GREATEST(messages_used - 1, 0),
+            lifetime_messages = GREATEST(lifetime_messages - 1, 0),
+            updated_at = $2
+      WHERE user_id = $1
+      RETURNING *`,
+    [userId, now],
+  );
 }
 
 /** Development/testing helper — starts a brand new window for the user. */
-export function resetUsage(userId, now = Date.now(), windowMs = 24 * 60 * 60 * 1000) {
-  const db = getDb();
-  const existing = getUsageRow(userId);
+export async function resetUsage(userId, now = Date.now(), windowMs = 24 * 60 * 60 * 1000) {
+  const existing = await getUsageRow(userId);
   if (!existing) return ensureUsageRow(userId, now, windowMs);
   return rollWindow(userId, now, windowMs);
 }

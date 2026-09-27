@@ -4,6 +4,7 @@ import { ERROR_CODES } from '@shared/errors';
 
 import { ApiClientError } from '../api/httpClient.js';
 import { yaarApi } from '../api/yaarApi.js';
+import { useAuth } from './useAuth.jsx';
 
 /**
  * Session provider — the single source of truth for everything the app knows
@@ -13,9 +14,14 @@ import { yaarApi } from '../api/yaarApi.js';
 
 const SessionContext = createContext(null);
 
-/** @typedef {'loading'|'ready'|'error'} SessionStatus */
+/**
+ * 'unauthenticated' = the server requires a Supabase login (AUTH_REQUIRED) and
+ * nobody is signed in; the router sends the user to the sign-in page.
+ * @typedef {'loading'|'ready'|'error'|'unauthenticated'} SessionStatus
+ */
 
 export function SessionProvider({ children }) {
+  const auth = useAuth();
   const [status, setStatus] = useState(/** @type {SessionStatus} */ ('loading'));
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
@@ -40,14 +46,24 @@ export function SessionProvider({ children }) {
       if (!mounted.current) return;
       const apiError =
         caught instanceof ApiClientError ? caught : new ApiClientError(ERROR_CODES.SERVER);
+      if (apiError.code === ERROR_CODES.UNAUTHORIZED || apiError.status === 401) {
+        setData(null);
+        setError(null);
+        setStatus('unauthenticated');
+        return;
+      }
       setError(apiError);
       setStatus('error');
     }
   }, []);
 
+  // (Re)load once the stored login is restored, and whenever the signed-in
+  // account changes (sign-in / sign-out switch between different users' data).
+  const authKey = auth.user?.id ?? 'anonymous';
   useEffect(() => {
+    if (auth.status !== 'ready') return;
     load();
-  }, [load]);
+  }, [load, auth.status, authKey]);
 
   /** Updates just the usage slice (called after every accepted message). */
   const setUsage = useCallback((usage) => {
